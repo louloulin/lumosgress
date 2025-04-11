@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
+use bytes;
 
 use crate::{
     config::RoutePlugin,
@@ -73,10 +74,19 @@ impl VectorDb {
     }
 
     async fn get_client(&self, config_name: &str) -> Result<Box<dyn VectorDbClient>> {
-        let mut clients = self.clients.lock().await;
+        let clients = self.clients.lock().await;
         
         if let Some(client) = clients.get(config_name) {
-            return Ok(client.clone());
+            let config = self.config.get(config_name)
+                .ok_or_else(|| anyhow!("Vector DB config not found: {}", config_name))?;
+            
+            return match config.provider {
+                VectorDbProvider::Pinecone => Ok(Box::new(PineconeClient::new(config.clone()))),
+                VectorDbProvider::Qdrant => Ok(Box::new(QdrantClient::new(config.clone()))),
+                VectorDbProvider::Weaviate => Ok(Box::new(WeaviateClient::new(config.clone()))),
+                VectorDbProvider::Milvus => Ok(Box::new(MilvusClient::new(config.clone()))),
+                VectorDbProvider::Custom(_) => Ok(Box::new(CustomClient::new(config.clone()))),
+            };
         }
         
         let config = self.config.get(config_name)
@@ -90,18 +100,26 @@ impl VectorDb {
             VectorDbProvider::Custom(_) => Box::new(CustomClient::new(config.clone())),
         };
         
-        clients.insert(config_name.to_string(), client.clone());
+        drop(clients);
+        
+        let mut clients = self.clients.lock().await;
+        clients.insert(config_name.to_string(), match config.provider {
+            VectorDbProvider::Pinecone => Box::new(PineconeClient::new(config.clone())),
+            VectorDbProvider::Qdrant => Box::new(QdrantClient::new(config.clone())),
+            VectorDbProvider::Weaviate => Box::new(WeaviateClient::new(config.clone())),
+            VectorDbProvider::Milvus => Box::new(MilvusClient::new(config.clone())),
+            VectorDbProvider::Custom(_) => Box::new(CustomClient::new(config.clone())),
+        });
+        
         Ok(client)
     }
 
     async fn process_request(&self, session: &mut Session, config_name: &str) -> Result<()> {
         let client = self.get_client(config_name).await?;
         
-        // 从请求中提取向量数据
-        let vectors = self.extract_vectors(session)?;
-        let metadata = self.extract_metadata(session)?;
+        let vectors = self.extract_vectors(session).await?;
+        let metadata = self.extract_metadata(session).await?;
 
-        // 批量处理向量数据
         let config = self.config.get(config_name).unwrap();
         let batch_size = config.batch_size.unwrap_or(100);
         for chunk in vectors.chunks(batch_size) {
@@ -116,22 +134,19 @@ impl VectorDb {
         let client = self.get_client(config_name).await?;
         let config = self.config.get(config_name).unwrap();
         
-        // 从响应中提取查询向量
-        let query_vector = self.extract_query_vector(session)?;
+        let query_vector = self.extract_query_vector(session).await?;
         
-        // 执行向量搜索
         let top_k = config.search_top_k.unwrap_or(10);
         let results = client.search(query_vector, top_k).await?;
         
-        // 将结果添加到响应中
         self.add_search_results(session, results).await?;
 
         Ok(())
     }
 
-    fn extract_vectors(&self, session: &Session) -> Result<Vec<Vec<f32>>> {
-        if let Some(body) = session.req_body() {
-            if let Ok(json_body) = serde_json::from_slice::<Value>(body) {
+    async fn extract_vectors(&self, session: &mut Session) -> Result<Vec<Vec<f32>>> {
+        if let Some(body) = session.read_request_body().await.ok().flatten() {
+            if let Ok(json_body) = serde_json::from_slice::<Value>(&body) {
                 if let Some(vectors) = json_body.get("vectors").and_then(|v| v.as_array()) {
                     return Ok(vectors.iter()
                         .filter_map(|v| v.as_array())
@@ -143,9 +158,9 @@ impl VectorDb {
         Ok(vec![])
     }
 
-    fn extract_metadata(&self, session: &Session) -> Result<Vec<Value>> {
-        if let Some(body) = session.req_body() {
-            if let Ok(json_body) = serde_json::from_slice::<Value>(body) {
+    async fn extract_metadata(&self, session: &mut Session) -> Result<Vec<Value>> {
+        if let Some(body) = session.read_request_body().await.ok().flatten() {
+            if let Ok(json_body) = serde_json::from_slice::<Value>(&body) {
                 if let Some(metadata) = json_body.get("metadata").and_then(|m| m.as_array()) {
                     return Ok(metadata.clone());
                 }
@@ -154,9 +169,9 @@ impl VectorDb {
         Ok(vec![])
     }
 
-    fn extract_query_vector(&self, session: &Session) -> Result<Vec<f32>> {
-        if let Some(body) = session.req_body() {
-            if let Ok(json_body) = serde_json::from_slice::<Value>(body) {
+    async fn extract_query_vector(&self, session: &mut Session) -> Result<Vec<f32>> {
+        if let Some(body) = session.read_request_body().await.ok().flatten() {
+            if let Ok(json_body) = serde_json::from_slice::<Value>(&body) {
                 if let Some(vector) = json_body.get("query_vector").and_then(|v| v.as_array()) {
                     return Ok(vector.iter()
                         .filter_map(|f| f.as_f64())
@@ -173,7 +188,8 @@ impl VectorDb {
             "search_results": results
         });
         
-        session.write_response_body(response.to_string().as_bytes()).await?;
+        let response_bytes = response.to_string();
+        session.write_response_body(Some(bytes::Bytes::from(response_bytes)), true).await?;
         Ok(())
     }
 }
@@ -225,7 +241,6 @@ impl MiddlewarePlugin for VectorDb {
     }
 }
 
-// 实现各个向量数据库的客户端
 struct PineconeClient {
     config: VectorDbConfig,
 }
@@ -366,5 +381,4 @@ impl VectorDbClient for CustomClient {
     }
 }
 
-// 在静态注册表中注册插件
 pub static VECTOR_DB: Lazy<VectorDb> = Lazy::new(VectorDb::new); 

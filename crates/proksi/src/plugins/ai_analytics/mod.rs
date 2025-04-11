@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use pingora::http::{RequestHeader, ResponseHeader};
+use pingora::http::StatusCode;
+use bytes;
 
 use crate::{
     config::RoutePlugin,
@@ -584,10 +586,10 @@ impl AiAnalytics {
                     
                     // Example anomaly chart
                     const anomalyData = {{
-                        labels: Array.from({{length: 24}}, (_, i) => `${i}:00`),
+                        labels: Array.from({{length: 24}}, (_, i) => `${{i}}:00`),
                         values: Array.from({{length: 24}}, () => Math.floor(Math.random() * 100)),
                         anomalies: [3, 8, 15].map(i => ({{
-                            x: `${i}:00`,
+                            x: `${{i}}:00`,
                             y: Math.floor(Math.random() * 100) + 50
                         }}))
                     }};
@@ -691,7 +693,13 @@ impl MiddlewarePlugin for AiAnalytics {
                             // This is a dashboard request
                             if let Some(dashboard_html) = self.handle_dashboard_request(analytics_config) {
                                 // Respond with the dashboard HTML
-                                session.respond_with(200, Some("text/html"), dashboard_html.as_bytes()).unwrap();
+                                let content_length = dashboard_html.len();
+                                let mut response = ResponseHeader::build(StatusCode::OK, None)?;
+                                response.append_header("Content-Type", "text/html; charset=utf-8")?;
+                                response.append_header("Content-Length", content_length.to_string())?;
+                                
+                                session.write_response_header(Box::new(response), false).await?;
+                                session.write_response_body(Some(bytes::Bytes::from(dashboard_html)), true).await?;
                                 return Ok(true);
                             }
                         }

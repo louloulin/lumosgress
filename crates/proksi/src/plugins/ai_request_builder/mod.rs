@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -6,6 +6,8 @@ use chrono::{DateTime, Utc};
 use pingora::{http::{RequestHeader, ResponseHeader}, proxy::Session};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use bytes;
+use http::StatusCode;
 
 use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
 use super::MiddlewarePlugin;
@@ -225,13 +227,12 @@ impl AiRequestBuilder {
         let content_length = html.len();
 
         // Set response headers
-        let mut response = ResponseHeader::build_200();
+        let mut response = ResponseHeader::build(StatusCode::OK, None)?;
         response.append_header("Content-Type", "text/html; charset=utf-8")?;
         response.append_header("Content-Length", content_length.to_string())?;
 
-        session.write_response_header(response, false).await?;
-        session.write_response_body(html.as_bytes()).await?;
-        session.end_response().await?;
+        session.write_response_header(Box::new(response), false).await?;
+        session.write_response_body(Some(bytes::Bytes::from(html)), true).await?;
 
         Ok(true)
     }
@@ -246,57 +247,56 @@ impl AiRequestBuilder {
             ));
         }
 
-        format!(
-            r#"<!DOCTYPE html>
+        let html = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Request Builder</title>
     <style>
-        body {{
+        body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             line-height: 1.6;
             color: #333;
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-        }}
-        h1, h2, h3 {{
+        }
+        h1, h2, h3 {
             color: #2c3e50;
-        }}
-        .container {{
+        }
+        .container {
             display: flex;
             gap: 20px;
-        }}
-        .left-panel {{
+        }
+        .left-panel {
             flex: 1;
-        }}
-        .right-panel {{
+        }
+        .right-panel {
             flex: 1;
-        }}
-        select, textarea, input, button {{
+        }
+        select, textarea, input, button {
             width: 100%;
             padding: 8px;
             margin-bottom: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
-        }}
-        textarea {{
+        }
+        textarea {
             min-height: 300px;
             font-family: monospace;
-        }}
-        button {{
+        }
+        button {
             background-color: #4CAF50;
             color: white;
             border: none;
             cursor: pointer;
             padding: 10px;
-        }}
-        button:hover {{
+        }
+        button:hover {
             background-color: #45a049;
-        }}
-        .response {{
+        }
+        .response {
             margin-top: 20px;
             border: 1px solid #ddd;
             padding: 10px;
@@ -306,19 +306,19 @@ impl AiRequestBuilder {
             white-space: pre-wrap;
             font-family: monospace;
             overflow: auto;
-        }}
-        .header-row {{
+        }
+        .header-row {
             display: flex;
             margin-bottom: 5px;
-        }}
-        .header-key {{
+        }
+        .header-key {
             flex: 1;
             margin-right: 5px;
-        }}
-        .header-value {{
+        }
+        .header-value {
             flex: 2;
-        }}
-        .remove-header {{
+        }
+        .remove-header {
             background-color: #f44336;
             color: white;
             border: none;
@@ -326,24 +326,24 @@ impl AiRequestBuilder {
             margin-left: 5px;
             cursor: pointer;
             border-radius: 4px;
-        }}
-        .add-header {{
+        }
+        .add-header {
             background-color: #2196F3;
             width: auto;
-        }}
-        #headers-container {{
+        }
+        #headers-container {
             margin-bottom: 10px;
-        }}
-        .info {{
+        }
+        .info {
             margin-top: 10px;
             color: #666;
-        }}
-        .tabs {{
+        }
+        .tabs {
             display: flex;
             margin-bottom: 20px;
             border-bottom: 1px solid #ddd;
-        }}
-        .tab {{
+        }
+        .tab {
             padding: 10px 20px;
             cursor: pointer;
             background-color: #f1f1f1;
@@ -351,35 +351,35 @@ impl AiRequestBuilder {
             border-bottom: none;
             margin-right: 5px;
             border-radius: 4px 4px 0 0;
-        }}
-        .tab.active {{
+        }
+        .tab.active {
             background-color: white;
             border-bottom: 1px solid white;
             margin-bottom: -1px;
-        }}
-        .tab-content {{
+        }
+        .tab-content {
             display: none;
-        }}
-        .tab-content.active {{
+        }
+        .tab-content.active {
             display: block;
-        }}
-        .history-item {{
+        }
+        .history-item {
             padding: 10px;
             border: 1px solid #ddd;
             margin-bottom: 10px;
             border-radius: 4px;
             cursor: pointer;
-        }}
-        .history-item:hover {{
+        }
+        .history-item:hover {
             background-color: #f1f1f1;
-        }}
-        .history-time {{
+        }
+        .history-time {
             font-size: 0.8em;
             color: #666;
-        }}
-        .history-provider {{
+        }
+        .history-provider {
             font-weight: bold;
-        }}
+        }
     </style>
 </head>
 <body>
@@ -397,7 +397,7 @@ impl AiRequestBuilder {
                 
                 <label for="template">Provider Template:</label>
                 <select id="template">
-                    {template_options}
+                    TEMPLATE_OPTIONS_PLACEHOLDER
                 </select>
                 
                 <label for="endpoint">Endpoint:</label>
@@ -416,47 +416,33 @@ impl AiRequestBuilder {
                 <button class="add-header" id="add-header">Add Header</button>
                 
                 <label for="request-body">Request Body:</label>
-                <textarea id="request-body" placeholder="{{}}"></textarea>
+                <textarea id="request-body" placeholder="{}"></textarea>
                 
                 <button id="send-request">Send Request</button>
             </div>
             
             <div class="right-panel">
                 <h2>Response</h2>
-                <div class="info" id="response-info"></div>
-                <div class="response" id="response"></div>
+                <div id="response-info" class="info"></div>
+                <div id="response" class="response"></div>
             </div>
         </div>
     </div>
     
     <div id="history" class="tab-content">
         <h2>Request History</h2>
-        <div id="history-container"></div>
+        <div id="history-container">
+            <p>No request history available.</p>
+        </div>
     </div>
 
     <script>
-        // Helper function to escape HTML
-        function escapeHtml(unsafe) {{
-            return unsafe
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }}
-
-        // Templates data
-        const templates = {{}};
-        
-        // Initialize with template data from the server
-        document.addEventListener('DOMContentLoaded', () => {{
-            // Set up templates
-            {{}};
-            
-            // Set up tab switching
+        // Initialize UI
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set up tabs
             const tabs = document.querySelectorAll('.tab');
-            tabs.forEach(tab => {{
-                tab.addEventListener('click', () => {{
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
                     tabs.forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                     
@@ -466,220 +452,216 @@ impl AiRequestBuilder {
                     const targetTab = tab.getAttribute('data-tab');
                     document.getElementById(targetTab).classList.add('active');
                     
-                    if (targetTab === 'history') {{
+                    if (targetTab === 'history') {
                         loadHistory();
-                    }}
-                }});
-            }});
+                    }
+                });
+            });
             
-            // Set up template select change
+            // Set up template selection
             const templateSelect = document.getElementById('template');
-            templateSelect.addEventListener('change', () => {{
-                loadTemplate(templateSelect.value);
-            }});
+            templateSelect.addEventListener('change', () => {
+                const selectedTemplate = templateSelect.value;
+                // TODO: Load the selected template data
+            });
             
-            // Set up add header button
-            document.getElementById('add-header').addEventListener('click', () => {{
-                addHeaderRow();
-            }});
+            // Set up header management
+            const addHeaderButton = document.getElementById('add-header');
+            addHeaderButton.addEventListener('click', addHeaderRow);
+            
+            // Add initial header row
+            addHeaderRow();
             
             // Set up send request button
-            document.getElementById('send-request').addEventListener('click', sendRequest);
-            
-            // Load initial template
-            if (templateSelect.options.length > 0) {{
-                loadTemplate(templateSelect.options[0].value);
-            }}
-        }});
+            const sendRequestButton = document.getElementById('send-request');
+            sendRequestButton.addEventListener('click', sendRequest);
+        });
         
-        function loadTemplate(templateName) {{
-            const template = templates[templateName];
-            if (!template) return;
-            
-            document.getElementById('endpoint').value = template.endpoint;
-            document.getElementById('method').value = template.method;
-            document.getElementById('request-body').value = template.body;
-            
-            // Clear and recreate headers
+        function addHeaderRow() {
             const headersContainer = document.getElementById('headers-container');
-            headersContainer.innerHTML = '';
-            
-            for (const [key, value] of Object.entries(template.headers)) {{
-                addHeaderRow(key, value);
-            }}
-        }}
-        
-        function addHeaderRow(key = '', value = '') {{
-            const headersContainer = document.getElementById('headers-container');
-            const row = document.createElement('div');
-            row.className = 'header-row';
+            const headerRow = document.createElement('div');
+            headerRow.className = 'header-row';
             
             const keyInput = document.createElement('input');
             keyInput.className = 'header-key';
-            keyInput.placeholder = 'Header name';
-            keyInput.value = key;
+            keyInput.placeholder = 'Header Name';
             
             const valueInput = document.createElement('input');
             valueInput.className = 'header-value';
-            valueInput.placeholder = 'Header value';
-            valueInput.value = value;
+            valueInput.placeholder = 'Header Value';
             
             const removeButton = document.createElement('button');
             removeButton.className = 'remove-header';
             removeButton.textContent = 'X';
-            removeButton.addEventListener('click', () => {{
-                row.remove();
-            }});
+            removeButton.addEventListener('click', () => {
+                headersContainer.removeChild(headerRow);
+            });
             
-            row.appendChild(keyInput);
-            row.appendChild(valueInput);
-            row.appendChild(removeButton);
-            headersContainer.appendChild(row);
-        }}
+            headerRow.appendChild(keyInput);
+            headerRow.appendChild(valueInput);
+            headerRow.appendChild(removeButton);
+            
+            headersContainer.appendChild(headerRow);
+        }
         
-        async function sendRequest() {{
-            const endpoint = document.getElementById('endpoint').value;
+        async function sendRequest() {
+            const endpoint = document.getElementById('endpoint').value.trim();
+            if (!endpoint) {
+                alert('Please enter an endpoint URL');
+                return;
+            }
+            
             const method = document.getElementById('method').value;
             const requestBody = document.getElementById('request-body').value;
             
             // Collect headers
-            const headers = {{}};
+            const headers = {};
             const headerRows = document.querySelectorAll('.header-row');
-            headerRows.forEach(row => {{
-                const key = row.querySelector('.header-key').value.trim();
-                const value = row.querySelector('.header-value').value.trim();
-                if (key && value) {{
-                    headers[key] = value;
-                }}
-            }});
+            headerRows.forEach(row => {
+                const keyInput = row.querySelector('.header-key');
+                const valueInput = row.querySelector('.header-value');
+                
+                if (keyInput.value.trim()) {
+                    headers[keyInput.value.trim()] = valueInput.value.trim();
+                }
+            });
             
-            // Show loading state
-            const responseInfo = document.getElementById('response-info');
+            // Update UI
             const responseElement = document.getElementById('response');
+            const responseInfo = document.getElementById('response-info');
             responseInfo.textContent = 'Sending request...';
             responseElement.textContent = '';
             
-            try {{
-                const startTime = new Date();
-                
-                // Make the request
-                const options = {{
+            // Send the request
+            try {
+                const start = Date.now();
+                const response = await fetch(endpoint, {
                     method,
-                    headers
-                }};
+                    headers,
+                    body: method !== 'GET' ? requestBody : undefined
+                });
                 
-                if (method !== 'GET' && requestBody) {{
-                    options.body = requestBody;
-                }}
+                const duration = Date.now() - start;
+                const responseText = await response.text();
                 
-                const response = await fetch(endpoint, options);
-                const endTime = new Date();
-                const duration = endTime - startTime;
-                
-                // Handle response
-                const contentType = response.headers.get('content-type');
-                let responseText;
-                
-                if (contentType && contentType.includes('application/json')) {{
-                    const json = await response.json();
-                    responseText = JSON.stringify(json, null, 2);
-                }} else {{
-                    responseText = await response.text();
-                }}
-                
-                // Display response
+                // Update UI with response
                 responseInfo.textContent = `Status: ${response.status} ${response.statusText} | Time: ${duration}ms`;
                 responseElement.textContent = responseText;
                 
                 // Add to history
-                addHistoryEntry({{
+                addToHistory({
                     timestamp: new Date().toISOString(),
-                    provider: document.getElementById('template').value,
-                    request: JSON.stringify({{
+                    provider: new URL(endpoint).hostname,
+                    request: JSON.stringify({
                         endpoint,
                         method,
                         headers,
                         body: requestBody
-                    }}, null, 2),
+                    }, null, 2),
                     response: responseText,
                     duration_ms: duration,
                     status_code: response.status
-                }});
-            }} catch (error) {{
+                });
+            } catch (error) {
                 responseInfo.textContent = `Error: ${error.message}`;
-                responseElement.textContent = error.toString();
-            }}
-        }}
+                responseElement.textContent = error.stack;
+            }
+        }
         
-        // Mock functions for history - would be implemented with real API calls in production
-        const mockHistory = [];
+        // Mock history functionality (in production this would use the API)
+        const requestHistory = [];
         
-        function addHistoryEntry(entry) {{
-            mockHistory.unshift(entry);
-            if (document.querySelector('.tab.active').getAttribute('data-tab') === 'history') {{
-                loadHistory();
-            }}
-        }}
-        
-        function loadHistory() {{
-            const historyContainer = document.getElementById('history-container');
-            historyContainer.innerHTML = '';
+        function addToHistory(entry) {
+            requestHistory.unshift(entry);
             
-            if (mockHistory.length === 0) {{
+            if (document.querySelector('.tab.active').getAttribute('data-tab') === 'history') {
+                loadHistory();
+            }
+        }
+        
+        function loadHistory() {
+            const historyContainer = document.getElementById('history-container');
+            
+            if (requestHistory.length === 0) {
                 historyContainer.innerHTML = '<p>No request history available.</p>';
                 return;
-            }}
+            }
             
-            mockHistory.forEach((entry, index) => {{
+            historyContainer.innerHTML = '';
+            
+            requestHistory.forEach(entry => {
                 const historyItem = document.createElement('div');
                 historyItem.className = 'history-item';
                 
                 const time = new Date(entry.timestamp).toLocaleString();
                 
                 historyItem.innerHTML = `
-                    <div class="history-time">${time} | ${entry.duration_ms}ms | Status: ${entry.status_code}</div>
-                    <div class="history-provider">${escapeHtml(entry.provider)}</div>
-                    <div>${escapeHtml(entry.endpoint || '')}</div>
+                    <div class="history-time">${time}</div>
+                    <div class="history-provider">${entry.provider}</div>
+                    <div>Status: ${entry.status_code} | Time: ${entry.duration_ms}ms</div>
                 `;
                 
-                historyItem.addEventListener('click', () => {{
+                historyItem.addEventListener('click', () => {
+                    // Parse the saved request
+                    const request = JSON.parse(entry.request);
+                    
                     // Switch to request builder tab
                     document.querySelector('.tab[data-tab="request-builder"]').click();
                     
-                    // Parse and load request
-                    try {{
-                        const requestData = JSON.parse(entry.request);
-                        document.getElementById('endpoint').value = requestData.endpoint;
-                        document.getElementById('method').value = requestData.method;
-                        document.getElementById('request-body').value = requestData.body;
+                    // Fill the form with the saved request
+                    document.getElementById('endpoint').value = request.endpoint;
+                    document.getElementById('method').value = request.method;
+                    document.getElementById('request-body').value = request.body;
+                    
+                    // Set headers
+                    const headersContainer = document.getElementById('headers-container');
+                    headersContainer.innerHTML = '';
+                    
+                    for (const [key, value] of Object.entries(request.headers)) {
+                        const headerRow = document.createElement('div');
+                        headerRow.className = 'header-row';
                         
-                        // Set headers
-                        const headersContainer = document.getElementById('headers-container');
-                        headersContainer.innerHTML = '';
+                        const keyInput = document.createElement('input');
+                        keyInput.className = 'header-key';
+                        keyInput.value = key;
                         
-                        for (const [key, value] of Object.entries(requestData.headers)) {{
-                            addHeaderRow(key, value);
-                        }}
+                        const valueInput = document.createElement('input');
+                        valueInput.className = 'header-value';
+                        valueInput.value = value;
                         
-                        // Set response
-                        document.getElementById('response-info').textContent = `Status: ${entry.status_code} | Time: ${entry.duration_ms}ms (from history)`;
-                        document.getElementById('response').textContent = entry.response;
-                    }} catch (error) {{
-                        console.error('Error loading history item:', error);
-                    }}
-                }});
+                        const removeButton = document.createElement('button');
+                        removeButton.className = 'remove-header';
+                        removeButton.textContent = 'X';
+                        removeButton.addEventListener('click', () => {
+                            headersContainer.removeChild(headerRow);
+                        });
+                        
+                        headerRow.appendChild(keyInput);
+                        headerRow.appendChild(valueInput);
+                        headerRow.appendChild(removeButton);
+                        
+                        headersContainer.appendChild(headerRow);
+                    }
+                    
+                    // Show the saved response
+                    const responseElement = document.getElementById('response');
+                    const responseInfo = document.getElementById('response-info');
+                    responseInfo.textContent = `Status: ${entry.status_code} | Time: ${entry.duration_ms}ms`;
+                    responseElement.textContent = entry.response;
+                });
                 
                 historyContainer.appendChild(historyItem);
-            }});
-        }}
+            });
+        }
     </script>
 </body>
-</html>"#
-        )
+</html>"#;
+
+        html.replace("TEMPLATE_OPTIONS_PLACEHOLDER", &template_options)
     }
 
     // Handle API requests for the request builder
-    async fn handle_api_request(&self, session: &mut Session) -> Result<bool> {
+    async fn handle_api_request(&self, session: &mut Session, path: &str, config: &AiRequestBuilderConfig) -> Result<bool> {
         // TODO: Implement API for fetching templates, history, etc.
         Ok(false)
     }
@@ -696,13 +678,15 @@ impl MiddlewarePlugin for AiRequestBuilder {
         let config = self.parse_config(plugin).await?;
         
         // Check if this is a request to the UI endpoint
-        if state.path == config.ui_endpoint {
+        let request_path = session.req_header().uri.to_string();
+        if request_path == config.ui_endpoint {
             return self.serve_ui(session, &config).await;
         }
         
         // Check if this is an API request
-        if config.enable_api && state.path.starts_with(&format!("{}/api", config.ui_endpoint)) {
-            return self.handle_api_request(session).await;
+        if config.enable_api && request_path.starts_with(&format!("{}/api", config.ui_endpoint)) {
+            let api_path = request_path.strip_prefix(&config.ui_endpoint).unwrap_or(&request_path);
+            return self.handle_api_request(session, api_path, &config).await;
         }
         
         // Not a request for this plugin
