@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.6.0] - 2023-10-xx
+
+### Added
+
+- AI网关功能
+  - 增加了LLM路由器插件，支持OpenAI、Anthropic、Google Vertex AI和Azure OpenAI
+  - 增加了提示转换插件，用于增强和规范化AI提示
+  - 增加了AI安全插件，用于检测提示注入和敏感信息
+  - 增加了LLM聚合器插件，支持多种聚合策略
+  - 完善了AI网关的集成测试
+
+### Fixed
+
+- 修复了Pingora API兼容性问题
+- 改进了插件系统注册机制
+- 修正了依赖配置
+
+## [0.5.3] - 2023-09-xx
+
+### Added
+
+- 支持OAuth2认证
+- 添加速率限制插件
+- CDN缓存功能
+
+### Fixed
+
+- 修复了路由匹配问题
+- 改进了错误处理
+- 优化了性能
+
 ## [0.5.3](https://github.com/luizfonseca/proksi/compare/proksi-v0.5.3...proksi-v0.5.3) (2025-01-04)
 
 

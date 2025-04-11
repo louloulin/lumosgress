@@ -16,10 +16,25 @@ pub mod jwt;
 pub mod oauth2;
 pub mod request_id;
 
+pub mod llm_router;
+pub mod prompt_transform;
+pub mod ai_security;
+pub mod llm_aggregator;
+
+use llm_router::LlmRouter;
+use prompt_transform::PromptTransformer;
+use ai_security::AiSecurity;
+use llm_aggregator::LlmAggregator;
+
 pub(crate) struct ProxyPlugins {
     pub basic_auth: Lazy<BasicAuth>,
     pub oauth2: Lazy<Oauth2>,
     pub request_id: Lazy<RequestId>,
+    
+    pub llm_router: Lazy<LlmRouter>,
+    pub prompt_transform: Lazy<PromptTransformer>,
+    pub ai_security: Lazy<AiSecurity>,
+    pub llm_aggregator: Lazy<LlmAggregator>,
 }
 
 /// Static plugin registry (plugins that don't generate a new instance for each request)
@@ -27,6 +42,11 @@ pub static PLUGINS: Lazy<ProxyPlugins> = Lazy::new(|| ProxyPlugins {
     basic_auth: Lazy::new(BasicAuth::new),
     oauth2: Lazy::new(Oauth2::new),
     request_id: Lazy::new(RequestId::new),
+    
+    llm_router: Lazy::new(LlmRouter::new),
+    prompt_transform: Lazy::new(PromptTransformer::new),
+    ai_security: Lazy::new(AiSecurity::new),
+    llm_aggregator: Lazy::new(LlmAggregator::new),
 });
 
 /// Get a required configuration value from a plugin config
