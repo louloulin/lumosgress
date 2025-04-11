@@ -77,10 +77,11 @@ pub async fn execute_request_plugins(
     ctx: &mut crate::proxy_server::https_proxy::RouterContext,
     plugins: &HashMap<String, crate::config::RoutePlugin>,
 ) -> Result<bool> {
-    use crate::plugins::MiddlewarePlugin;
     for (name, value) in plugins {
         match name.as_str() {
             "oauth2" => {
+                use crate::plugins::MiddlewarePlugin;
+
                 if crate::plugins::PLUGINS
                     .oauth2
                     .request_filter(session, ctx, value)
@@ -91,11 +92,14 @@ pub async fn execute_request_plugins(
                 }
             }
             "request_id" => {
-                crate::plugins::PLUGINS
+                if crate::plugins::PLUGINS
                     .request_id
                     .request_filter(session, ctx, value)
                     .await
-                    .ok();
+                    .is_ok_and(|v| v)
+                {
+                    return Ok(true);
+                }
             }
             "basic_auth" => {
                 if crate::plugins::PLUGINS
@@ -148,6 +152,47 @@ pub async fn execute_request_plugins(
                     return Ok(true);
                 }
             },
+            "vector_db" => {
+                if crate::plugins::PLUGINS
+                    .vector_db
+                    .request_filter(session, ctx, value)
+                    .await
+                    .is_ok_and(|v| v)
+                {
+                    return Ok(true);
+                }
+            },
+            "ai_analytics" => {
+                if crate::plugins::PLUGINS
+                    .ai_analytics
+                    .request_filter(session, ctx, value)
+                    .await
+                    .is_ok_and(|v| v)
+                {
+                    return Ok(true);
+                }
+            },
+            "ai_request_builder" => {
+                if crate::plugins::PLUGINS
+                    .ai_request_builder
+                    .request_filter(session, ctx, value)
+                    .await
+                    .is_ok_and(|v| v)
+                {
+                    return Ok(true);
+                }
+            },
+            "prompt_debugger" => {
+                if crate::plugins::PLUGINS
+                    .prompt_debugger
+                    .request_filter(session, ctx, value)
+                    .await
+                    .is_ok_and(|v| v)
+                {
+                    return Ok(true);
+                }
+            },
+            "other" => continue,
             _ => {}
         }
     }
@@ -198,6 +243,34 @@ pub async fn execute_upstream_request_plugins(
                     .await
                     .ok();
             },
+            "vector_db" => {
+                crate::plugins::PLUGINS
+                    .vector_db
+                    .upstream_request_filter(session, upstream_request, ctx)
+                    .await
+                    .ok();
+            },
+            "ai_analytics" => {
+                crate::plugins::PLUGINS
+                    .ai_analytics
+                    .upstream_request_filter(session, upstream_request, ctx)
+                    .await
+                    .ok();
+            },
+            "ai_request_builder" => {
+                crate::plugins::PLUGINS
+                    .ai_request_builder
+                    .upstream_request_filter(session, upstream_request, ctx)
+                    .await
+                    .ok();
+            },
+            "prompt_debugger" => {
+                crate::plugins::PLUGINS
+                    .prompt_debugger
+                    .upstream_request_filter(session, upstream_request, ctx)
+                    .await
+                    .ok();
+            },
             "other" => continue,
             _ => {}
         }
@@ -241,6 +314,30 @@ pub fn execute_upstream_response_plugins(
             "llm_aggregator" => {
                 crate::plugins::PLUGINS
                     .llm_aggregator
+                    .upstream_response_filter(session, upstream_response, ctx)
+                    .ok();
+            },
+            "vector_db" => {
+                crate::plugins::PLUGINS
+                    .vector_db
+                    .upstream_response_filter(session, upstream_response, ctx)
+                    .ok();
+            },
+            "ai_analytics" => {
+                crate::plugins::PLUGINS
+                    .ai_analytics
+                    .upstream_response_filter(session, upstream_response, ctx)
+                    .ok();
+            },
+            "ai_request_builder" => {
+                crate::plugins::PLUGINS
+                    .ai_request_builder
+                    .upstream_response_filter(session, upstream_response, ctx)
+                    .ok();
+            },
+            "prompt_debugger" => {
+                crate::plugins::PLUGINS
+                    .prompt_debugger
                     .upstream_response_filter(session, upstream_response, ctx)
                     .ok();
             },
