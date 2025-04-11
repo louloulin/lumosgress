@@ -24,6 +24,7 @@ pub mod vector_db;
 pub mod ai_analytics;
 pub mod ai_request_builder;
 pub mod prompt_debugger;
+pub mod performance_analyzer;
 
 use llm_router::LlmRouter;
 use prompt_transform::PromptTransformer;
@@ -33,6 +34,7 @@ use vector_db::VectorDb;
 use ai_analytics::AiAnalytics;
 use ai_request_builder::AiRequestBuilder;
 use prompt_debugger::PromptDebugger;
+use performance_analyzer::PerformanceAnalyzer;
 
 pub(crate) struct ProxyPlugins {
     pub basic_auth: Lazy<BasicAuth>,
@@ -47,6 +49,7 @@ pub(crate) struct ProxyPlugins {
     pub ai_analytics: Lazy<AiAnalytics>,
     pub ai_request_builder: Lazy<AiRequestBuilder>,
     pub prompt_debugger: Lazy<PromptDebugger>,
+    pub performance_analyzer: Lazy<PerformanceAnalyzer>,
 }
 
 /// Static plugin registry (plugins that don't generate a new instance for each request)
@@ -63,6 +66,7 @@ pub static PLUGINS: Lazy<ProxyPlugins> = Lazy::new(|| ProxyPlugins {
     ai_analytics: Lazy::new(AiAnalytics::new),
     ai_request_builder: Lazy::new(AiRequestBuilder::new),
     prompt_debugger: Lazy::new(PromptDebugger::new),
+    performance_analyzer: Lazy::new(PerformanceAnalyzer::new),
 });
 
 /// Get a required configuration value from a plugin config

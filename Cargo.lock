@@ -2627,6 +2627,7 @@ dependencies = [
  "pingora",
  "pingora-cache",
  "prometheus 0.14.0",
+ "rand 0.8.5",
  "regex",
  "reqwest",
  "seize 0.5.0",

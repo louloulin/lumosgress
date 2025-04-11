@@ -14,6 +14,3 @@ debug = false
 codegen-units = 1
 incremental = true
 panic = "abort"    # Abort on panic.
-
-[dependencies]
-vector-db = { version = "0.1.0", features = ["pinecone", "qdrant", "weaviate", "milvus"] }

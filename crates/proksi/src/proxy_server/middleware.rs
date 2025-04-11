@@ -192,6 +192,16 @@ pub async fn execute_request_plugins(
                     return Ok(true);
                 }
             },
+            "performance_analyzer" => {
+                if crate::plugins::PLUGINS
+                    .performance_analyzer
+                    .request_filter(session, ctx, value)
+                    .await
+                    .is_ok_and(|v| v)
+                {
+                    return Ok(true);
+                }
+            },
             "other" => continue,
             _ => {}
         }
@@ -271,6 +281,13 @@ pub async fn execute_upstream_request_plugins(
                     .await
                     .ok();
             },
+            "performance_analyzer" => {
+                crate::plugins::PLUGINS
+                    .performance_analyzer
+                    .upstream_request_filter(session, upstream_request, ctx)
+                    .await
+                    .ok();
+            },
             "other" => continue,
             _ => {}
         }
@@ -338,6 +355,12 @@ pub fn execute_upstream_response_plugins(
             "prompt_debugger" => {
                 crate::plugins::PLUGINS
                     .prompt_debugger
+                    .upstream_response_filter(session, upstream_response, ctx)
+                    .ok();
+            },
+            "performance_analyzer" => {
+                crate::plugins::PLUGINS
+                    .performance_analyzer
                     .upstream_response_filter(session, upstream_response, ctx)
                     .ok();
             },

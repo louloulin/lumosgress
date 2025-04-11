@@ -1,0 +1,20 @@
+# Development files
+src
+examples
+tests
+.eslintrc.js
+jest.config.js
+tsconfig.json
+
+# IDE files
+.vscode
+.idea
+
+# Git files
+.git
+.gitignore
+
+# Build artifacts
+coverage
+.nyc_output
+*.log 

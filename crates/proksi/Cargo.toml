@@ -39,7 +39,7 @@ async-trait = "0.1.87"
 bollard = "0.16.1"
 bollard-stubs = "=1.44.0-rc.2"
 bytes = "1.10.1"
-chrono = "0.4.35"
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5.35", features = ["derive", "cargo"] }
 cookie = { version = "0.18.1", features = ["private"] }
 dashmap = "6.1.0"
@@ -61,6 +61,7 @@ path-tree = "0.8.3"
 pingora = { version = "0.4.0", features = ["lb", "openssl", "proxy", "cache"] }
 pingora-cache = "0.4.0"
 prometheus = "0.14.0"
+rand = "0.8.5"
 regex = "1.10.3"
 reqwest = { version = "0.12.15", features = ["json"] }
 seize = "0.5.0"

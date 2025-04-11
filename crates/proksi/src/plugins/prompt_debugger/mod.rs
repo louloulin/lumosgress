@@ -3,9 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use http::StatusCode;
 use pingora::{http::{RequestHeader, ResponseHeader}, proxy::Session};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use bytes;
 
 use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
 use super::MiddlewarePlugin;
@@ -358,98 +360,99 @@ impl PromptDebugger {
         let html = self.generate_ui_html(config).await;
         let content_length = html.len();
 
-        // Set response headers
-        let mut response = ResponseHeader::build_200();
+        // Write HTTP response
+        let mut response = ResponseHeader::build(StatusCode::OK, None)?;
         response.append_header("Content-Type", "text/html; charset=utf-8")?;
         response.append_header("Content-Length", content_length.to_string())?;
 
-        session.write_response_header(response, false).await?;
-        session.write_response_body(html.as_bytes()).await?;
-        session.end_response().await?;
+        session.write_response_header(Box::new(response), false).await?;
+        session.write_response_body(Some(bytes::Bytes::from(html)), true).await?;
 
         Ok(true)
     }
 
     // Generate the HTML for the UI
     async fn generate_ui_html(&self, config: &PromptDebuggerConfig) -> String {
-        format!(
-            r#"<!DOCTYPE html>
+        let rules_json = serde_json::to_string(&config.rules).unwrap_or_else(|_| "[]".to_string());
+        
+        // Use a raw string (r#) to avoid escaping issues
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prompt Debugger</title>
     <style>
-        body {{
+        body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             line-height: 1.6;
             color: #333;
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-        }}
-        h1, h2, h3 {{
+        }
+        h1, h2, h3 {
             color: #2c3e50;
-        }}
-        .container {{
+        }
+        .container {
             display: flex;
             gap: 20px;
-        }}
-        .left-panel {{
+        }
+        .left-panel {
             flex: 1;
-        }}
-        .right-panel {{
+        }
+        .right-panel {
             flex: 1;
-        }}
-        select, textarea, input, button {{
+        }
+        select, textarea, input, button {
             width: 100%;
             padding: 8px;
             margin-bottom: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
-        }}
-        textarea {{
+        }
+        textarea {
             min-height: 200px;
             font-family: monospace;
-        }}
-        button {{
+        }
+        button {
             background-color: #4CAF50;
             color: white;
             border: none;
             cursor: pointer;
             padding: 10px;
-        }}
-        button:hover {{
+        }
+        button:hover {
             background-color: #45a049;
-        }}
-        .rule-result {{
+        }
+        .rule-result {
             margin-bottom: 10px;
             padding: 10px;
             border-radius: 4px;
-        }}
-        .rule-info {{
+        }
+        .rule-info {
             background-color: #e3f2fd;
             border-left: 4px solid #2196F3;
-        }}
-        .rule-warning {{
+        }
+        .rule-warning {
             background-color: #fff8e1;
             border-left: 4px solid #ffc107;
-        }}
-        .rule-error {{
+        }
+        .rule-error {
             background-color: #ffebee;
             border-left: 4px solid #f44336;
-        }}
-        .rule-title {{
+        }
+        .rule-title {
             font-weight: bold;
             margin-bottom: 5px;
-        }}
-        .suggestions {{
+        }
+        .suggestions {
             margin-top: 20px;
             padding: 10px;
             background-color: #e8f5e9;
             border-left: 4px solid #4caf50;
-        }}
-        .improved-prompt {{
+        }
+        .improved-prompt {
             margin-top: 20px;
             padding: 10px;
             background-color: #f5f5f5;
@@ -457,17 +460,17 @@ impl PromptDebugger {
             border-radius: 4px;
             font-family: monospace;
             white-space: pre-wrap;
-        }}
-        .info {{
+        }
+        .info {
             margin-top: 10px;
             color: #666;
-        }}
-        .tabs {{
+        }
+        .tabs {
             display: flex;
             margin-bottom: 20px;
             border-bottom: 1px solid #ddd;
-        }}
-        .tab {{
+        }
+        .tab {
             padding: 10px 20px;
             cursor: pointer;
             background-color: #f1f1f1;
@@ -475,62 +478,62 @@ impl PromptDebugger {
             border-bottom: none;
             margin-right: 5px;
             border-radius: 4px 4px 0 0;
-        }}
-        .tab.active {{
+        }
+        .tab.active {
             background-color: white;
             border-bottom: 1px solid white;
             margin-bottom: -1px;
-        }}
-        .tab-content {{
+        }
+        .tab-content {
             display: none;
-        }}
-        .tab-content.active {{
+        }
+        .tab-content.active {
             display: block;
-        }}
-        .history-item {{
+        }
+        .history-item {
             padding: 10px;
             border: 1px solid #ddd;
             margin-bottom: 10px;
             border-radius: 4px;
             cursor: pointer;
-        }}
-        .history-item:hover {{
+        }
+        .history-item:hover {
             background-color: #f1f1f1;
-        }}
-        .history-time {{
+        }
+        .history-time {
             font-size: 0.8em;
             color: #666;
-        }}
-        .rules-container {{
+        }
+        .rules-container {
             margin-top: 20px;
-        }}
-        .rule-header {{
+        }
+        .rule-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 10px;
-        }}
-        .rule-header h2 {{
+        }
+        .rule-header h2 {
             margin: 0;
-        }}
-        .rule-card {{
+        }
+        .rule-card {
             border: 1px solid #ddd;
             border-radius: 4px;
             padding: 10px;
             margin-bottom: 10px;
-        }}
-        .rule-card h3 {{
+        }
+        .rule-card h3 {
             margin-top: 0;
-        }}
-        .severity-info {{
+        }
+        .severity-info {
             color: #2196F3;
-        }}
-        .severity-warning {{
+        }
+        .severity-warning {
             color: #ffc107;
-        }}
-        .severity-error {{
+        }
+        .severity-error {
             color: #f44336;
-        }}
+        }
     </style>
 </head>
 <body>
@@ -584,18 +587,8 @@ impl PromptDebugger {
     </div>
 
     <script>
-        // Debug rules data
-        const debugRules = [
-            {%- for rule in config.rules %}
-            {
-                name: "{{ rule.name }}",
-                description: "{{ rule.description }}",
-                pattern: "{{ rule.pattern }}",
-                suggestion: "{{ rule.suggestion }}",
-                severity: "{{ rule.severity }}"
-            }{%- if loop.index < config.rules.len() %},{% endif %}
-            {%- endfor %}
-        ];
+        // Debug rules data from server
+        const debugRules = JSON.parse(`RULES_JSON_PLACEHOLDER`);
         
         // Initialize with rules data
         document.addEventListener('DOMContentLoaded', () => {
@@ -814,8 +807,7 @@ impl PromptDebugger {
         }
     </script>
 </body>
-</html>"#.replace("{%-", "{%").replace("%}", "%}")  // This is to preserve template syntax that might clash with formatting
-        )
+</html>"#.replace("RULES_JSON_PLACEHOLDER", &rules_json)
     }
 
     // Handle API requests
@@ -823,7 +815,7 @@ impl PromptDebugger {
         match path {
             "/api/analyze" => {
                 // Read request body to analyze
-                if let Some(body) = session.req_body().await.ok() {
+                if let Some(body) = session.read_request_body().await.ok().flatten() {
                     if let Some(prompt) = self.extract_prompt_from_request(&String::from_utf8_lossy(&body)) {
                         // Analyze the prompt
                         let analysis = self.analyze_prompt(&prompt, config);
@@ -832,27 +824,25 @@ impl PromptDebugger {
                         let json = serde_json::to_string(&analysis)?;
                         let content_length = json.len();
                         
-                        let mut response = ResponseHeader::build_200();
+                        let mut response = ResponseHeader::build(StatusCode::OK, None)?;
                         response.append_header("Content-Type", "application/json")?;
                         response.append_header("Content-Length", content_length.to_string())?;
                         
-                        session.write_response_header(response, false).await?;
-                        session.write_response_body(json.as_bytes()).await?;
-                        session.end_response().await?;
+                        session.write_response_header(Box::new(response), false).await?;
+                        session.write_response_body(Some(bytes::Bytes::from(json)), true).await?;
                         
                         return Ok(true);
                     }
                 }
                 
                 // Return 400 if we couldn't extract a prompt
-                let mut response = ResponseHeader::build(400);
+                let mut response = ResponseHeader::build(StatusCode::BAD_REQUEST, None)?;
                 let error_msg = "Could not extract prompt from request";
                 response.append_header("Content-Type", "text/plain")?;
                 response.append_header("Content-Length", error_msg.len().to_string())?;
                 
-                session.write_response_header(response, false).await?;
-                session.write_response_body(error_msg.as_bytes()).await?;
-                session.end_response().await?;
+                session.write_response_header(Box::new(response), false).await?;
+                session.write_response_body(Some(bytes::Bytes::from(error_msg)), true).await?;
                 
                 Ok(true)
             },
@@ -861,13 +851,12 @@ impl PromptDebugger {
                 let json = serde_json::to_string(&config.rules)?;
                 let content_length = json.len();
                 
-                let mut response = ResponseHeader::build_200();
+                let mut response = ResponseHeader::build(StatusCode::OK, None)?;
                 response.append_header("Content-Type", "application/json")?;
                 response.append_header("Content-Length", content_length.to_string())?;
                 
-                session.write_response_header(response, false).await?;
-                session.write_response_body(json.as_bytes()).await?;
-                session.end_response().await?;
+                session.write_response_header(Box::new(response), false).await?;
+                session.write_response_body(Some(bytes::Bytes::from(json)), true).await?;
                 
                 Ok(true)
             },
@@ -877,13 +866,12 @@ impl PromptDebugger {
                 let json = serde_json::to_string(&*history)?;
                 let content_length = json.len();
                 
-                let mut response = ResponseHeader::build_200();
+                let mut response = ResponseHeader::build(StatusCode::OK, None)?;
                 response.append_header("Content-Type", "application/json")?;
                 response.append_header("Content-Length", content_length.to_string())?;
                 
-                session.write_response_header(response, false).await?;
-                session.write_response_body(json.as_bytes()).await?;
-                session.end_response().await?;
+                session.write_response_header(Box::new(response), false).await?;
+                session.write_response_body(Some(bytes::Bytes::from(json)), true).await?;
                 
                 Ok(true)
             },
@@ -902,14 +890,15 @@ impl MiddlewarePlugin for PromptDebugger {
     ) -> Result<bool> {
         let config = self.parse_config(plugin).await?;
         
-        // Check if this is a request to the UI endpoint
-        if state.path == config.ui_endpoint {
-            return self.serve_ui(session, &config).await;
+        // Handle UI and API requests
+        let request_path = session.req_header().uri.to_string();
+        if request_path == config.ui_endpoint {
+            self.serve_ui(session, &config).await?;
+            return Ok(false);
         }
-        
-        // Check if this is an API request
-        if config.enable_api && state.path.starts_with(&format!("{}/api", config.ui_endpoint)) {
-            let api_path = state.path.strip_prefix(&config.ui_endpoint).unwrap_or(&state.path);
+
+        if config.enable_api && request_path.starts_with(&format!("{}/api", config.ui_endpoint)) {
+            let api_path = request_path.strip_prefix(&config.ui_endpoint).unwrap_or(&request_path);
             return self.handle_api_request(session, api_path, &config).await;
         }
         
