@@ -110,6 +110,51 @@ async function searchVectors() {
 }
 ```
 
+## Command Line Interface (CLI)
+
+The SDK includes a powerful CLI that allows you to interact with the Proksi AI Gateway directly from your terminal.
+
+### Installation
+
+```bash
+# Install globally
+npm install -g proksi-sdk
+
+# Or use with npx
+npx proksi-sdk --help
+```
+
+### Configuration
+
+```bash
+# Set environment variables
+export PROKSI_API_URL="https://your-proksi-instance.com"
+export PROKSI_API_KEY="your-api-key"
+```
+
+### Example Commands
+
+```bash
+# Get help
+proksi --help
+
+# Send a completion request
+proksi completion "What is the capital of France?"
+
+# Stream a response
+proksi stream "Write a poem about AI"
+
+# Interactive chat
+proksi chat
+
+# Vector operations
+proksi vector:upsert --namespace products --id product-123 0.1 0.2 0.3 0.4
+proksi vector:search --namespace products 0.1 0.2 0.3 0.4
+proksi vector:delete --namespace products product-123
+```
+
+For more detailed CLI examples, see [CLI Examples](./examples/cli-examples.md).
+
 ## API Reference
 
 ### ProksiClient
@@ -141,4 +186,4 @@ Configuration options:
 
 ## License
 
-MIT 
+Apache 2.0 

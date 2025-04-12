@@ -76,7 +76,7 @@ export interface CompletionResponse {
 }
 
 // Stream chunk response
-export interface CompletionChunk {
+export interface StreamCompletionChunk {
   id: string;
   provider: LLMProvider;
   model: string;
