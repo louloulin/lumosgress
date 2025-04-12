@@ -10,105 +10,103 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Switch } from "@/components/ui/switch"
-import { PlusIcon, PencilIcon, TrashIcon } from "@/components/icons/icons"
 
-// Define the plugin type
-interface Plugin {
+// Define the route type
+interface Route {
   id: string
   name: string
-  description: string
-  version: string
-  status: 'active' | 'inactive' | 'error'
-  type: 'llm' | 'vector' | 'security' | 'analytics'
-  config: Record<string, any>
+  path: string
+  target: string
+  method: string
+  active: boolean
+  type: 'llm' | 'vector' | 'other'
 }
 
-export default function PluginsPage() {
+export default function RoutesPage() {
   const [activeTab, setActiveTab] = useState("all")
   
   // Mock data - would come from API in real implementation
-  const plugins: Plugin[] = [
+  const routes: Route[] = [
     {
       id: "1",
-      name: "LLM Router",
-      description: "Routes requests to different LLM providers based on content",
-      version: "1.0.0",
-      status: "active",
-      type: "llm",
-      config: {
-        defaultProvider: "openai",
-        fallbackProvider: "anthropic"
-      }
+      name: "OpenAI Completions",
+      path: "/v1/completions",
+      target: "https://api.openai.com/v1/completions",
+      method: "POST",
+      active: true,
+      type: "llm"
     },
     {
       id: "2",
-      name: "Vector Database",
-      description: "Integrates with vector databases for semantic search",
-      version: "1.0.0",
-      status: "active",
-      type: "vector",
-      config: {
-        provider: "pinecone",
-        index: "default"
-      }
+      name: "OpenAI Chat",
+      path: "/v1/chat/completions",
+      target: "https://api.openai.com/v1/chat/completions",
+      method: "POST",
+      active: true,
+      type: "llm"
     },
     {
       id: "3",
-      name: "Prompt Debugger",
-      description: "Analyzes and optimizes prompt quality",
-      version: "1.0.0",
-      status: "active",
-      type: "llm",
-      config: {
-        rules: ["length", "clarity", "safety"]
-      }
+      name: "Anthropic Messages",
+      path: "/v1/messages",
+      target: "https://api.anthropic.com/v1/messages",
+      method: "POST",
+      active: true,
+      type: "llm"
     },
     {
       id: "4",
-      name: "Anomaly Detection",
-      description: "Detects unusual patterns in AI traffic",
-      version: "1.0.0",
-      status: "active",
-      type: "analytics",
-      config: {
-        algorithms: ["zscore", "moving_average"]
-      }
+      name: "Vector Search",
+      path: "/vectors/search",
+      target: "INTERNAL",
+      method: "POST",
+      active: true,
+      type: "vector"
+    },
+    {
+      id: "5",
+      name: "Vector Upsert",
+      path: "/vectors/upsert",
+      target: "INTERNAL",
+      method: "POST",
+      active: true,
+      type: "vector"
     }
   ]
   
-  // Filter plugins based on active tab
-  const filteredPlugins = activeTab === "all" 
-    ? plugins 
-    : plugins.filter(plugin => plugin.type === activeTab)
+  // Filter routes based on active tab
+  const filteredRoutes = activeTab === "all" 
+    ? routes 
+    : routes.filter(route => route.type === activeTab)
   
   return (
     <DashboardLayout>
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Plugins Management</h1>
+            <h1 className="text-3xl font-bold">Routes Management</h1>
             <p className="text-muted-foreground">
-              Configure and manage your AI Gateway plugins
+              Configure and manage your AI Gateway routes
             </p>
           </div>
           <Button>
             <PlusIcon className="mr-2 h-4 w-4" />
-            Install Plugin
+            Add New Route
           </Button>
         </div>
         
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Plugins</CardTitle>
+            <CardTitle>Routes</CardTitle>
             <CardDescription>
-              Manage and configure your AI Gateway plugins
+              Manage route configurations for your AI Gateway
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div className="flex items-center space-x-2">
                 <Input 
-                  placeholder="Search plugins..." 
+                  placeholder="Search routes..." 
                   className="max-w-sm" 
                 />
                 <Select defaultValue="all">
@@ -119,34 +117,29 @@ export default function PluginsPage() {
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="error">Error</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               
               <Tabs defaultValue="all" className="w-full" onValueChange={setActiveTab}>
                 <TabsList>
-                  <TabsTrigger value="all">All Plugins</TabsTrigger>
-                  <TabsTrigger value="llm">LLM Plugins</TabsTrigger>
-                  <TabsTrigger value="vector">Vector Plugins</TabsTrigger>
-                  <TabsTrigger value="security">Security Plugins</TabsTrigger>
-                  <TabsTrigger value="analytics">Analytics Plugins</TabsTrigger>
+                  <TabsTrigger value="all">All Routes</TabsTrigger>
+                  <TabsTrigger value="llm">LLM Routes</TabsTrigger>
+                  <TabsTrigger value="vector">Vector Routes</TabsTrigger>
+                  <TabsTrigger value="other">Other Routes</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="all" className="mt-4">
-                  <PluginsList plugins={filteredPlugins} />
+                  <RoutesList routes={filteredRoutes} />
                 </TabsContent>
                 <TabsContent value="llm" className="mt-4">
-                  <PluginsList plugins={filteredPlugins} />
+                  <RoutesList routes={filteredRoutes} />
                 </TabsContent>
                 <TabsContent value="vector" className="mt-4">
-                  <PluginsList plugins={filteredPlugins} />
+                  <RoutesList routes={filteredRoutes} />
                 </TabsContent>
-                <TabsContent value="security" className="mt-4">
-                  <PluginsList plugins={filteredPlugins} />
-                </TabsContent>
-                <TabsContent value="analytics" className="mt-4">
-                  <PluginsList plugins={filteredPlugins} />
+                <TabsContent value="other" className="mt-4">
+                  <RoutesList routes={filteredRoutes} />
                 </TabsContent>
               </Tabs>
             </div>
@@ -155,45 +148,62 @@ export default function PluginsPage() {
         
         <Card className="mt-4">
           <CardHeader>
-            <CardTitle>Plugin Configuration</CardTitle>
+            <CardTitle>Route Configuration Editor</CardTitle>
             <CardDescription>
-              Configure plugin settings and parameters
+              Create or edit route configurations
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="plugin-name">Plugin Name</Label>
-                  <Input id="plugin-name" placeholder="LLM Router" />
+                  <Label htmlFor="route-name">Route Name</Label>
+                  <Input id="route-name" placeholder="OpenAI Completions" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="plugin-version">Version</Label>
-                  <Input id="plugin-version" placeholder="1.0.0" />
+                  <Label htmlFor="route-path">Path</Label>
+                  <Input id="route-path" placeholder="/v1/completions" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="plugin-type">Type</Label>
+                  <Label htmlFor="route-target">Target URL</Label>
+                  <Input id="route-target" placeholder="https://api.openai.com/v1/completions" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="route-method">HTTP Method</Label>
+                  <Select defaultValue="POST">
+                    <SelectTrigger id="route-method">
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="GET">GET</SelectItem>
+                      <SelectItem value="POST">POST</SelectItem>
+                      <SelectItem value="PUT">PUT</SelectItem>
+                      <SelectItem value="DELETE">DELETE</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="route-type">Route Type</Label>
                   <Select defaultValue="llm">
-                    <SelectTrigger id="plugin-type">
+                    <SelectTrigger id="route-type">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="llm">LLM</SelectItem>
                       <SelectItem value="vector">Vector</SelectItem>
-                      <SelectItem value="security">Security</SelectItem>
-                      <SelectItem value="analytics">Analytics</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex items-center space-x-2 pt-8">
-                  <Switch id="plugin-active" defaultChecked />
-                  <Label htmlFor="plugin-active">Active</Label>
+                  <Switch id="route-active" defaultChecked />
+                  <Label htmlFor="route-active">Active</Label>
                 </div>
               </div>
               
               <div className="pt-4 flex justify-end space-x-2">
                 <Button variant="outline">Cancel</Button>
-                <Button>Save Configuration</Button>
+                <Button>Save Route</Button>
               </div>
             </form>
           </CardContent>
@@ -203,44 +213,43 @@ export default function PluginsPage() {
   )
 }
 
-// Plugins list component
-function PluginsList({ plugins }: { plugins: Plugin[] }) {
+// Routes list component
+function RoutesList({ routes }: { routes: Route[] }) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
-          <TableHead>Description</TableHead>
-          <TableHead>Version</TableHead>
+          <TableHead>Path</TableHead>
+          <TableHead>Target</TableHead>
+          <TableHead>Method</TableHead>
           <TableHead>Type</TableHead>
           <TableHead>Status</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {plugins.map(plugin => (
-          <TableRow key={plugin.id}>
-            <TableCell className="font-medium">{plugin.name}</TableCell>
-            <TableCell>{plugin.description}</TableCell>
-            <TableCell>{plugin.version}</TableCell>
+        {routes.map(route => (
+          <TableRow key={route.id}>
+            <TableCell className="font-medium">{route.name}</TableCell>
+            <TableCell>{route.path}</TableCell>
+            <TableCell>{route.target}</TableCell>
+            <TableCell>{route.method}</TableCell>
             <TableCell>
               <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
-                ${plugin.type === 'llm' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300' : 
-                  plugin.type === 'vector' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300' : 
-                  plugin.type === 'security' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300' :
-                  'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'}`}>
-                {plugin.type}
+                ${route.type === 'llm' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300' : 
+                  route.type === 'vector' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300' : 
+                  'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'}`}>
+                {route.type}
               </span>
             </TableCell>
             <TableCell>
               <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                plugin.status === 'active' 
+                route.active 
                   ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' 
-                  : plugin.status === 'error'
-                  ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
-                  : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
+                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
               }`}>
-                {plugin.status}
+                {route.active ? 'Active' : 'Inactive'}
               </span>
             </TableCell>
             <TableCell className="text-right">
