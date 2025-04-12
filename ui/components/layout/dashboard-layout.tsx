@@ -51,6 +51,20 @@ const navItems: NavItem[] = [
     ],
   },
   {
+    title: "Tools",
+    href: "/dashboard/tools",
+    children: [
+      {
+        title: "API Configuration",
+        href: "/dashboard/tools/api-config",
+      },
+      {
+        title: "Request Builder",
+        href: "/dashboard/tools/request-builder",
+      },
+    ],
+  },
+  {
     title: "Settings",
     href: "/dashboard/settings",
   },

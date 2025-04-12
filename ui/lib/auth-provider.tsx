@@ -20,26 +20,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 // Check if we're in development mode
 const isDevelopment = process.env.NODE_ENV === 'development'
 
+// Default dev user
+const DEFAULT_DEV_USER = { name: 'dev_user', role: 'admin' }
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  // In development, initialize with a default user
+  const [user, setUser] = useState<User | null>(isDevelopment ? DEFAULT_DEV_USER : null)
+  const [isLoading, setIsLoading] = useState(false) // Set to false initially in dev mode
   const router = useRouter()
   const pathname = usePathname()
 
-  // Check if user is logged in on mount
+  // Check if user is logged in on mount (only in production)
   useEffect(() => {
+    if (isDevelopment) return; // Skip in development mode
+    
     const checkAuth = () => {
+      setIsLoading(true);
       try {
-        // In development mode, auto-login with a test user
-        if (isDevelopment) {
-          setUser({ name: 'dev_user', role: 'admin' })
-        } else {
-          const token = localStorage.getItem('auth_token')
-          const storedUser = localStorage.getItem('user')
-          
-          if (token && storedUser) {
-            setUser(JSON.parse(storedUser))
-          }
+        const token = localStorage.getItem('auth_token')
+        const storedUser = localStorage.getItem('user')
+        
+        if (token && storedUser) {
+          setUser(JSON.parse(storedUser))
         }
       } catch (error) {
         console.error('Authentication error:', error)
@@ -53,10 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   
   // Redirect unauthenticated users away from protected routes
   useEffect(() => {
+    // Skip auth redirects in development mode
+    if (isDevelopment) return;
+    
     if (!isLoading) {
-      // Skip auth redirects in development mode
-      if (isDevelopment) return
-      
       const isAuthPage = pathname?.startsWith('/auth')
       
       if (!user && !isAuthPage && pathname !== '/') {
@@ -107,15 +109,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = () => {
-    setIsLoading(true)
+    // Skip in development mode - just keep default user
+    if (isDevelopment) {
+      setUser(DEFAULT_DEV_USER)
+      return
+    }
     
+    setIsLoading(true)
     try {
-      // Skip in development mode
-      if (isDevelopment) {
-        setUser(null)
-        return
-      }
-      
       // Clear auth data
       localStorage.removeItem('auth_token')
       localStorage.removeItem('user')
