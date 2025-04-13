@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetTrigger } from "../ui/sheet"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { UserProfile } from './user-profile'
+import { ThemeToggle } from '../ui/theme-toggle'
 
 interface NavItem {
   title: string
@@ -208,6 +209,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </NavigationMenuList>
           </NavigationMenu>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Button variant="outline" size="icon">
               <Bell className="h-4 w-4" />
               <span className="sr-only">Notifications</span>
