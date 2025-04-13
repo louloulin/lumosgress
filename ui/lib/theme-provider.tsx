@@ -10,7 +10,15 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
   return (
-    <NextThemesProvider {...props} attribute="class" defaultTheme="system" enableSystem>
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      enableColorScheme
+      disableTransitionOnChange
+      storageKey="proksi-theme"
+      {...props}
+    >
       {children}
     </NextThemesProvider>
   )

@@ -32,6 +32,18 @@ pub enum TransformationType {
     AddSafetyCheck,
     // 提示模板
     ApplyTemplate,
+    // 格式化提示
+    FormatPrompt,
+    // 提取关键词
+    ExtractKeywords,
+    // 内容增强
+    EnhanceContent,
+    // 语言翻译
+    TranslatePrompt,
+    // 提示分割
+    SplitPrompt,
+    // RAG增强
+    RAGEnhancement,
     // 自定义转换
     Custom,
 }
@@ -43,6 +55,12 @@ impl From<&str> for TransformationType {
             "context" | "add_context" => TransformationType::AddContext,
             "safety" | "safety_check" => TransformationType::AddSafetyCheck,
             "template" | "apply_template" => TransformationType::ApplyTemplate,
+            "format" | "format_prompt" => TransformationType::FormatPrompt,
+            "keywords" | "extract_keywords" => TransformationType::ExtractKeywords,
+            "enhance" | "enhance_content" => TransformationType::EnhanceContent,
+            "translate" | "translate_prompt" => TransformationType::TranslatePrompt,
+            "split" | "split_prompt" => TransformationType::SplitPrompt,
+            "rag" | "rag_enhancement" => TransformationType::RAGEnhancement,
             _ => TransformationType::Custom,
         }
     }
@@ -61,6 +79,12 @@ pub struct PromptTransformation {
     pub provider: Option<String>, // 适用的提供商，None表示全部
     pub content: String,          // 转换内容
     pub template: Option<String>, // 模板名称
+    pub target_lang: Option<String>,      // 目标语言（用于翻译）
+    pub format_style: Option<String>,     // 格式化样式
+    pub max_tokens: Option<usize>,        // 最大Token数（用于分割）
+    pub enhancement_level: Option<String>, // 增强级别（基础、中级、高级）
+    pub rag_source: Option<String>,       // RAG数据源
+    pub custom_params: Option<Value>,     // 自定义参数（JSON格式）
 }
 
 pub struct PromptTransformer {
@@ -147,8 +171,36 @@ impl PromptTransformer {
                             modified |= self.apply_template(&mut json_body, template_name);
                         }
                     }
+                    TransformationType::FormatPrompt => {
+                        if let Some(style) = &transformation.format_style {
+                            modified |= self.format_prompt(&mut json_body, style, &transformation.content);
+                        }
+                    }
+                    TransformationType::ExtractKeywords => {
+                        modified |= self.extract_keywords(&mut json_body, &transformation.content);
+                    }
+                    TransformationType::EnhanceContent => {
+                        let level = transformation.enhancement_level.as_deref().unwrap_or("standard");
+                        modified |= self.enhance_content(&mut json_body, level, &transformation.content);
+                    }
+                    TransformationType::TranslatePrompt => {
+                        if let Some(target_lang) = &transformation.target_lang {
+                            modified |= self.translate_prompt(&mut json_body, target_lang);
+                        }
+                    }
+                    TransformationType::SplitPrompt => {
+                        let max_tokens = transformation.max_tokens.unwrap_or(4000);
+                        modified |= self.split_prompt(&mut json_body, max_tokens);
+                    }
+                    TransformationType::RAGEnhancement => {
+                        if let Some(source) = &transformation.rag_source {
+                            modified |= self.enhance_with_rag(&mut json_body, source, &transformation.content);
+                        }
+                    }
                     TransformationType::Custom => {
-                        // 自定义转换逻辑
+                        if let Some(params) = &transformation.custom_params {
+                            modified |= self.apply_custom_transform(&mut json_body, params, &transformation.content);
+                        }
                     }
                 }
             }
@@ -308,6 +360,274 @@ impl PromptTransformer {
         
         false
     }
+
+    // 格式化提示
+    fn format_prompt(&self, json_body: &mut Value, style: &str, instructions: &str) -> bool {
+        // 获取原始提示内容
+        let original_prompt = self.extract_user_prompt(json_body);
+        if original_prompt.is_none() {
+            return false;
+        }
+        
+        let prompt = original_prompt.unwrap();
+        let formatted_prompt = match style.to_lowercase().as_str() {
+            "bullet" => {
+                // 将文本转换为项目符号列表
+                let bullets: Vec<String> = prompt
+                    .split('.')
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| format!("• {}", s.trim()))
+                    .collect();
+                bullets.join("\n")
+            }
+            "numbered" => {
+                // 将文本转换为编号列表
+                let numbered: Vec<String> = prompt
+                    .split('.')
+                    .filter(|s| !s.trim().is_empty())
+                    .enumerate()
+                    .map(|(i, s)| format!("{}. {}", i + 1, s.trim()))
+                    .collect();
+                numbered.join("\n")
+            }
+            "structured" => {
+                // 添加标题和结构
+                format!("# {}\n\n{}", instructions, prompt)
+            }
+            "concise" => {
+                // 简明格式（去除冗余词语）
+                prompt.replace("please ", "")
+                    .replace("could you ", "")
+                    .replace("I would like to ", "")
+                    .replace("I want to ", "")
+            }
+            _ => {
+                // 默认格式化方式
+                format!("{}\n\n{}", instructions, prompt)
+            }
+        };
+        
+        // 更新提示内容
+        self.update_user_prompt(json_body, &formatted_prompt)
+    }
+
+    // 提取关键词
+    fn extract_keywords(&self, json_body: &mut Value, instructions: &str) -> bool {
+        // 获取原始提示内容
+        let original_prompt = self.extract_user_prompt(json_body);
+        if original_prompt.is_none() {
+            return false;
+        }
+        
+        let prompt = original_prompt.unwrap();
+        
+        // 基本的关键词提取逻辑（在实际实现中可使用更复杂的NLP方法）
+        let stop_words = vec!["a", "an", "the", "in", "on", "at", "to", "for", "with", "by", "about", "like"];
+        let keywords: Vec<String> = prompt
+            .split_whitespace()
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| s.len() > 3 && !stop_words.contains(&s.as_str()))
+            .take(10) // 限制关键词数量
+            .collect();
+        
+        // 构建增强提示
+        let enhanced_prompt = format!(
+            "{}\n\nKeywords: {}\n\nOriginal request: {}",
+            instructions,
+            keywords.join(", "),
+            prompt
+        );
+        
+        // 更新提示内容
+        self.update_user_prompt(json_body, &enhanced_prompt)
+    }
+
+    // 增强内容
+    fn enhance_content(&self, json_body: &mut Value, level: &str, instructions: &str) -> bool {
+        // 获取原始提示内容
+        let original_prompt = self.extract_user_prompt(json_body);
+        if original_prompt.is_none() {
+            return false;
+        }
+        
+        let prompt = original_prompt.unwrap();
+        
+        // 根据不同级别应用不同的增强
+        let enhanced_prompt = match level {
+            "basic" => {
+                format!("{}\n\n{}", prompt, instructions)
+            }
+            "standard" => {
+                format!(
+                    "Please provide a detailed and comprehensive response to the following request:\n\n{}\n\n{}",
+                    prompt, instructions
+                )
+            }
+            "advanced" => {
+                format!(
+                    "As an expert in this subject, please provide an in-depth analysis with examples, counterarguments, and nuanced perspectives on:\n\n{}\n\n{}\n\nPlease include relevant references, examples, and consider multiple viewpoints.",
+                    prompt, instructions
+                )
+            }
+            _ => {
+                format!("{}\n\n{}", prompt, instructions)
+            }
+        };
+        
+        // 更新提示内容
+        self.update_user_prompt(json_body, &enhanced_prompt)
+    }
+
+    // 翻译提示
+    fn translate_prompt(&self, json_body: &mut Value, target_lang: &str) -> bool {
+        // 获取原始提示内容
+        let original_prompt = self.extract_user_prompt(json_body);
+        if original_prompt.is_none() {
+            return false;
+        }
+        
+        let prompt = original_prompt.unwrap();
+        
+        // 注意：实际实现中，这里应该调用翻译API或服务
+        // 由于示例的限制，这里只是添加一个简单的指令
+        let translated_prompt = format!(
+            "Translate the following to {}: \n\n{}",
+            target_lang, prompt
+        );
+        
+        // 更新提示内容
+        self.update_user_prompt(json_body, &translated_prompt)
+    }
+
+    // 分割提示
+    fn split_prompt(&self, json_body: &mut Value, max_tokens: usize) -> bool {
+        // 获取原始提示内容
+        let original_prompt = self.extract_user_prompt(json_body);
+        if original_prompt.is_none() {
+            return false;
+        }
+        
+        let prompt = original_prompt.unwrap();
+        
+        // 简单的基于段落的分割
+        // 注意：实际实现中，应该使用token计数器来确保准确的分割
+        if prompt.len() > max_tokens {
+            // 添加分割的提示
+            let modified_prompt = format!(
+                "This is a long prompt that might exceed token limits. Please respond to the following part first, then ask for the next part if needed:\n\n{}",
+                // 简单地取前一部分文本，实际应基于token计数
+                &prompt[0..max_tokens.min(prompt.len())]
+            );
+            
+            // 更新提示内容
+            return self.update_user_prompt(json_body, &modified_prompt);
+        }
+        
+        false // 无需分割
+    }
+
+    // RAG增强
+    fn enhance_with_rag(&self, json_body: &mut Value, source: &str, instructions: &str) -> bool {
+        // 获取原始提示内容
+        let original_prompt = self.extract_user_prompt(json_body);
+        if original_prompt.is_none() {
+            return false;
+        }
+        
+        let prompt = original_prompt.unwrap();
+        
+        // 注意：实际实现中，这里应该查询向量数据库或其他知识源
+        // 由于示例的限制，这里只是添加一个简单的指令
+        let enhanced_prompt = format!(
+            "Using the knowledge from {}, please respond to the following:\n\n{}\n\n{}",
+            source, prompt, instructions
+        );
+        
+        // 更新提示内容
+        self.update_user_prompt(json_body, &enhanced_prompt)
+    }
+
+    // 应用自定义转换
+    fn apply_custom_transform(&self, json_body: &mut Value, params: &Value, instructions: &str) -> bool {
+        // 获取原始提示内容
+        let original_prompt = self.extract_user_prompt(json_body);
+        if original_prompt.is_none() {
+            return false;
+        }
+        
+        let prompt = original_prompt.unwrap();
+        
+        // 处理自定义参数
+        let operation = params.get("operation").and_then(|o| o.as_str()).unwrap_or("append");
+        
+        let transformed_prompt = match operation {
+            "append" => {
+                format!("{}\n\n{}", prompt, instructions)
+            }
+            "prepend" => {
+                format!("{}\n\n{}", instructions, prompt)
+            }
+            "replace" => {
+                if let Some(pattern) = params.get("pattern").and_then(|p| p.as_str()) {
+                    prompt.replace(pattern, instructions)
+                } else {
+                    instructions.to_string()
+                }
+            }
+            _ => {
+                format!("{}\n\n{}", prompt, instructions)
+            }
+        };
+        
+        // 更新提示内容
+        self.update_user_prompt(json_body, &transformed_prompt)
+    }
+
+    // 提取用户提示内容的辅助方法
+    fn extract_user_prompt(&self, json_body: &Value) -> Option<String> {
+        // 对OpenAI格式的处理
+        if let Some(messages) = json_body.get("messages").and_then(|m| m.as_array()) {
+            for message in messages {
+                if message.get("role").and_then(|r| r.as_str()) == Some("user") {
+                    if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                        return Some(content.to_string());
+                    }
+                }
+            }
+        }
+        // 对Anthropic格式的处理
+        else if let Some(prompt) = json_body.get("prompt").and_then(|p| p.as_str()) {
+            if let Some(human_idx) = prompt.find("Human:") {
+                return Some(prompt[human_idx + 6..].trim().to_string());
+            }
+        }
+        
+        None
+    }
+
+    // 更新用户提示内容的辅助方法
+    fn update_user_prompt(&self, json_body: &mut Value, new_prompt: &str) -> bool {
+        // 对OpenAI格式的处理
+        if let Some(messages) = json_body.get_mut("messages").and_then(|m| m.as_array_mut()) {
+            for message in messages.iter_mut() {
+                if message.get("role").and_then(|r| r.as_str()) == Some("user") {
+                    message["content"] = new_prompt.into();
+                    return true;
+                }
+            }
+        }
+        // 对Anthropic格式的处理
+        else if let Some(prompt) = json_body.get_mut("prompt").and_then(|p| p.as_str()) {
+            if let Some(human_idx) = prompt.find("Human:") {
+                let prefix = &prompt[0..human_idx + 6]; // 包含"Human:"
+                let new_content = format!("{} {}", prefix, new_prompt);
+                json_body["prompt"] = new_content.into();
+                return true;
+            }
+        }
+        
+        false
+    }
 }
 
 // 实现中间件插件 trait
@@ -380,6 +700,12 @@ mod tests {
         assert!(matches!(TransformationType::from("context"), TransformationType::AddContext));
         assert!(matches!(TransformationType::from("safety"), TransformationType::AddSafetyCheck));
         assert!(matches!(TransformationType::from("template"), TransformationType::ApplyTemplate));
+        assert!(matches!(TransformationType::from("format"), TransformationType::FormatPrompt));
+        assert!(matches!(TransformationType::from("keywords"), TransformationType::ExtractKeywords));
+        assert!(matches!(TransformationType::from("enhance"), TransformationType::EnhanceContent));
+        assert!(matches!(TransformationType::from("translate"), TransformationType::TranslatePrompt));
+        assert!(matches!(TransformationType::from("split"), TransformationType::SplitPrompt));
+        assert!(matches!(TransformationType::from("rag"), TransformationType::RAGEnhancement));
         assert!(matches!(TransformationType::from("unknown"), TransformationType::Custom));
     }
     
@@ -411,5 +737,138 @@ mod tests {
         // 验证消息数量仍然是2
         let final_count = openai_json["messages"].as_array().unwrap().len();
         assert_eq!(final_count, 2);
+    }
+    
+    #[test]
+    fn test_format_prompt() {
+        let transformer = PromptTransformer::new();
+        
+        // OpenAI格式测试
+        let mut openai_json = json!({
+            "messages": [
+                {"role": "user", "content": "Tell me about AI. Include its history. Discuss potential risks."}
+            ]
+        });
+        
+        // 测试项目符号格式
+        assert!(transformer.format_prompt(&mut openai_json, "bullet", "Bullet points"));
+        let content = openai_json["messages"][0]["content"].as_str().unwrap();
+        assert!(content.contains("• Tell me about AI"));
+        assert!(content.contains("• Include its history"));
+        assert!(content.contains("• Discuss potential risks"));
+        
+        // 测试编号格式
+        let mut openai_json = json!({
+            "messages": [
+                {"role": "user", "content": "Tell me about AI. Include its history. Discuss potential risks."}
+            ]
+        });
+        
+        assert!(transformer.format_prompt(&mut openai_json, "numbered", "Numbered list"));
+        let content = openai_json["messages"][0]["content"].as_str().unwrap();
+        assert!(content.contains("1. Tell me about AI"));
+        assert!(content.contains("2. Include its history"));
+        assert!(content.contains("3. Discuss potential risks"));
+    }
+    
+    #[test]
+    fn test_extract_keywords() {
+        let transformer = PromptTransformer::new();
+        
+        // OpenAI格式测试
+        let mut openai_json = json!({
+            "messages": [
+                {"role": "user", "content": "Tell me about artificial intelligence and machine learning applications in healthcare"}
+            ]
+        });
+        
+        assert!(transformer.extract_keywords(&mut openai_json, "Focus on these keywords"));
+        let content = openai_json["messages"][0]["content"].as_str().unwrap();
+        assert!(content.contains("Keywords:"));
+        assert!(content.contains("artificial"));
+        assert!(content.contains("intelligence"));
+        assert!(content.contains("machine"));
+        assert!(content.contains("learning"));
+        assert!(content.contains("healthcare"));
+        assert!(content.contains("Original request:"));
+    }
+    
+    #[test]
+    fn test_enhance_content() {
+        let transformer = PromptTransformer::new();
+        
+        // OpenAI格式测试 - 基础增强
+        let mut openai_json = json!({
+            "messages": [
+                {"role": "user", "content": "Tell me about AI"}
+            ]
+        });
+        
+        assert!(transformer.enhance_content(&mut openai_json, "basic", "Include examples"));
+        let content = openai_json["messages"][0]["content"].as_str().unwrap();
+        assert_eq!(content, "Tell me about AI\n\nInclude examples");
+        
+        // OpenAI格式测试 - 高级增强
+        let mut openai_json = json!({
+            "messages": [
+                {"role": "user", "content": "Tell me about AI"}
+            ]
+        });
+        
+        assert!(transformer.enhance_content(&mut openai_json, "advanced", "Include examples"));
+        let content = openai_json["messages"][0]["content"].as_str().unwrap();
+        assert!(content.contains("expert in this subject"));
+        assert!(content.contains("in-depth analysis"));
+        assert!(content.contains("Include examples"));
+    }
+    
+    #[test]
+    fn test_translate_prompt() {
+        let transformer = PromptTransformer::new();
+        
+        // OpenAI格式测试
+        let mut openai_json = json!({
+            "messages": [
+                {"role": "user", "content": "Tell me about AI"}
+            ]
+        });
+        
+        assert!(transformer.translate_prompt(&mut openai_json, "Chinese"));
+        let content = openai_json["messages"][0]["content"].as_str().unwrap();
+        assert!(content.contains("Translate the following to Chinese:"));
+        assert!(content.contains("Tell me about AI"));
+    }
+    
+    #[test]
+    fn test_extract_and_update_user_prompt() {
+        let transformer = PromptTransformer::new();
+        
+        // OpenAI格式测试
+        let openai_json = json!({
+            "messages": [
+                {"role": "user", "content": "Original prompt"}
+            ]
+        });
+        
+        let prompt = transformer.extract_user_prompt(&openai_json);
+        assert_eq!(prompt, Some("Original prompt".to_string()));
+        
+        let mut openai_json_mut = openai_json.clone();
+        assert!(transformer.update_user_prompt(&mut openai_json_mut, "Updated prompt"));
+        let updated_content = openai_json_mut["messages"][0]["content"].as_str().unwrap();
+        assert_eq!(updated_content, "Updated prompt");
+        
+        // Anthropic格式测试
+        let anthropic_json = json!({
+            "prompt": "Human: Original anthropic prompt"
+        });
+        
+        let prompt = transformer.extract_user_prompt(&anthropic_json);
+        assert_eq!(prompt, Some("Original anthropic prompt".to_string()));
+        
+        let mut anthropic_json_mut = anthropic_json.clone();
+        assert!(transformer.update_user_prompt(&mut anthropic_json_mut, "Updated anthropic prompt"));
+        let updated_content = anthropic_json_mut["prompt"].as_str().unwrap();
+        assert!(updated_content.contains("Human: Updated anthropic prompt"));
     }
 } 
