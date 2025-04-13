@@ -65,6 +65,28 @@ const navItems: NavItem[] = [
     ],
   },
   {
+    title: "Developer Portal",
+    href: "/dashboard/developer-portal",
+    children: [
+      {
+        title: "Getting Started",
+        href: "/dashboard/developer-portal",
+      },
+      {
+        title: "SDK & Libraries",
+        href: "/dashboard/developer-portal?tab=sdk",
+      },
+      {
+        title: "API Reference",
+        href: "/dashboard/developer-portal?tab=api-reference",
+      },
+      {
+        title: "Examples",
+        href: "/dashboard/developer-portal?tab=examples",
+      },
+    ],
+  },
+  {
     title: "Settings",
     href: "/dashboard/settings",
   },
