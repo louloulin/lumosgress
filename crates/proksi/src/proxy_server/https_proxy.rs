@@ -134,15 +134,61 @@ impl ProxyHttp for Router {
             return Ok(true);
         };
 
-        // Match request pattern based on the URI
+        // Match request pattern based on the URI and Headers
         let uri = req_header.uri.clone();
+        let mut matched = true; // Assume match initially
 
-        match &route_container.path_matcher.pattern {
-            Some(pattern) if pattern.find(uri.path()).is_none() => {
-                session.respond_error(404).await?;
-                return Ok(true);
+        if let Some(matcher) = &route_container.match_with {
+            // Path matching
+            if let Some(path_matcher) = &matcher.path {
+                if !path_matcher.patterns.iter().any(|p| p.find(uri.path()).is_some()) {
+                    matched = false;
+                    tracing::debug!(
+                        "Request path {} did not match patterns {:?} for host {}",
+                        uri.path(), path_matcher.patterns, host_without_port
+                    );
+                }
             }
-            _ => {}
+
+            // Header matching (only if path matched or no path matcher)
+            if matched {
+                if let Some(header_matcher) = &matcher.header {
+                    let header_name = HeaderName::from_bytes(header_matcher.name.as_bytes())
+                        .map_err(|e| {
+                            let err_msg = format!("Invalid header name in config: {}", e);
+                            pingora::Error::new_str(Box::leak(err_msg.into_boxed_str()))
+                        })?;
+                    
+                    if let Some(header_value) = req_header.headers.get(&header_name) {
+                        let header_str = header_value.to_str()
+                            .map_err(|e| {
+                                let err_msg = format!("Invalid header value: {}", e);
+                                pingora::Error::new_str(Box::leak(err_msg.into_boxed_str()))
+                            })?;
+                        
+                        if !header_matcher.values.iter().any(|v| v == header_str) {
+                            matched = false;
+                            tracing::debug!(
+                                "Request header {}={} did not match allowed values {:?} for host {}",
+                                header_matcher.name, header_str, header_matcher.values, host_without_port
+                            );
+                        }
+                    } else {
+                        // Header not present in request
+                        matched = false;
+                         tracing::debug!(
+                            "Required header {} not found in request for host {}",
+                            header_matcher.name, host_without_port
+                        );
+                    }
+                }
+            }
+        }
+        
+        // If any matcher failed, return 404
+        if !matched {
+            session.respond_error(404).await?;
+            return Ok(true);
         }
 
         // Middleware phase: request_filter
@@ -512,7 +558,7 @@ fn get_uri(session: &mut Session) -> Uri {
 
 /// Retrieves the host from the request headers based on
 /// whether the request is HTTP/1.1 or HTTP/2
-fn get_host(session: &mut Session) -> &str {
+fn get_host(session: &Session) -> &str {
     if let Some(host) = session.get_header(http::header::HOST) {
         return host.to_str().unwrap_or("");
     }

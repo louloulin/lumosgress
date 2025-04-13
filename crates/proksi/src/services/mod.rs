@@ -16,6 +16,8 @@ pub mod docker;
 pub mod health_check;
 pub mod letsencrypt;
 pub mod logger;
+pub mod server;
+pub mod monitoring;
 
 /// Exploring: what if we grouped all the services into a single service using a single thread?
 pub struct BackgroundFunctionService {

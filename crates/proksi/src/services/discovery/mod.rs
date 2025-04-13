@@ -71,6 +71,7 @@ impl RoutingService {
                 path: Some(RoutePathMatcher {
                     patterns: route_clone.iter().map(|v| Cow::Owned(v.clone())).collect(),
                 }),
+                header: None,
             });
         }
 
@@ -240,7 +241,19 @@ fn add_route_to_router(
         match match_with.path {
             Some(path_matcher) if !path_matcher.patterns.is_empty() => {
                 let pattern = path_matcher.patterns;
-                route_store_container.path_matcher.with_pattern(&pattern);
+                // Initialize match_with if it's None
+                if route_store_container.match_with.is_none() {
+                    route_store_container.match_with = Some(RouteMatcher {
+                        path: Some(RoutePathMatcher {
+                            patterns: pattern.clone(),
+                        }),
+                        header: None,
+                    });
+                } else if let Some(ref mut matcher) = route_store_container.match_with {
+                    matcher.path = Some(RoutePathMatcher {
+                        patterns: pattern.clone(),
+                    });
+                }
             }
             _ => {}
         }

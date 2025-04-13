@@ -30,6 +30,7 @@ pub mod performance_analyzer;
 
 pub mod tenant;
 pub mod compliance;
+pub mod manager;
 
 use llm_router::LlmRouter;
 use prompt_transform::PromptTransformer;

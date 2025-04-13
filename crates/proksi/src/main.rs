@@ -10,13 +10,15 @@ use std::{borrow::Cow, sync::Arc};
 use pingora::{listeners::tls::TlsSettings, proxy::http_proxy_service, server::configuration::Opt};
 
 use proxy_server::cert_store::CertStore;
-use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService};
+use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService, server};
 
 use plugins::{Plugin, tenant::TenantPlugin, compliance::CompliancePlugin};
+use models::tenant::{ResourceQuota, ResourceUsage, TenantStatus};
 
 mod cache;
 mod channel;
 mod config;
+mod models;
 mod plugins;
 mod proxy_server;
 mod services;
@@ -182,20 +184,20 @@ fn main() -> Result<(), anyhow::Error> {
 
     async fn initialize_plugins() -> Result<(), Box<dyn std::error::Error>> {
         // 初始化租户插件
-        let tenant_plugin = TenantPlugin::new(tenant::TenantPluginConfig {
-            default_quota: ResourceQuota { /* 配置 */ },
+        let tenant_plugin = TenantPlugin::new(plugins::tenant::TenantPluginConfig {
+            default_quota: ResourceQuota { requests: 1000, tokens: 10000 },
             isolation_enabled: true,
         }).await?;
 
         // 初始化合规插件
-        let compliance_plugin = CompliancePlugin::new(compliance::CompliancePluginConfig {
+        let compliance_plugin = CompliancePlugin::new(plugins::compliance::CompliancePluginConfig {
             retention_period_days: 30,
             alert_threshold: 0.9,
         }).await?;
 
         // 注册插件到插件管理器
-        plugin_manager::register(tenant_plugin);
-        plugin_manager::register(compliance_plugin);
+        plugins::manager::register(tenant_plugin);
+        plugins::manager::register(compliance_plugin);
 
         Ok(())
     }

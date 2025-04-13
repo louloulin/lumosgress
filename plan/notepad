@@ -1,3 +1,5 @@
 @ai_gateway_plan.md 按计划实现相关功能，实现完成，增加测试验证，验证通过后更新 @ai_gateway_plan.md 标记实现的功能，按计划实现ui功能
 
 @plan2.md  按计划实现相关功能，实现完成，增加测试验证，验证通过后更新 @plan2.md  标记实现的功能，中文说明
+
+@xiufu.md 按照这个计划配置cargo test 分析异常修复问题，修复后，更新 @xiufu.md 标记实现的功能

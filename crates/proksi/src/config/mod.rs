@@ -218,8 +218,17 @@ pub struct RoutePathMatcher {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RouteHeaderMatcher {
+    /// Name of the header to match (e.g., "X-API-Version")
+    pub name: Cow<'static, str>,
+    /// Value(s) the header must have
+    pub values: Vec<Cow<'static, str>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RouteMatcher {
     pub path: Option<RoutePathMatcher>,
+    pub header: Option<RouteHeaderMatcher>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -353,6 +362,9 @@ pub struct Route {
     /// The matcher for the route
     /// (ex: path, query, etc.)
     pub match_with: Option<RouteMatcher>,
+
+    /// Optional: Explicit API versions supported by this route
+    pub versions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, ValueEnum)]
