@@ -62,6 +62,14 @@ const navItems: NavItem[] = [
         title: "Request Builder",
         href: "/dashboard/tools/request-builder",
       },
+      {
+        title: "Prompt Debugger",
+        href: "/dashboard/tools/prompt-debugger",
+      },
+      {
+        title: "AI Request Analyzer",
+        href: "/dashboard/tools/ai-request-analyzer",
+      },
     ],
   },
   {
