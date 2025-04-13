@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAuth } from "@/lib/auth-provider"
+import { Slider } from "@/components/ui/slider"
+import { Badge } from "@/components/ui/badge"
 
 // Mock user data
 const mockUsers = [
@@ -19,11 +21,66 @@ const mockUsers = [
   { id: "3", name: "API User", email: "api@example.com", role: "api", active: false },
 ]
 
+// Mock tenant data
+const mockTenants = [
+  { 
+    id: "1", 
+    name: "Enterprise Corp", 
+    plan: "enterprise", 
+    status: "active", 
+    users: 15, 
+    quota: { requests: 100000, tokens: 5000000 },
+    usage: { requests: 45621, tokens: 2123456 }
+  },
+  { 
+    id: "2", 
+    name: "StartupXYZ", 
+    plan: "business", 
+    status: "active", 
+    users: 5, 
+    quota: { requests: 50000, tokens: 2000000 },
+    usage: { requests: 32145, tokens: 1542321 }
+  },
+  { 
+    id: "3", 
+    name: "DevTeam Alpha", 
+    plan: "developer", 
+    status: "active", 
+    users: 3, 
+    quota: { requests: 10000, tokens: 500000 },
+    usage: { requests: 8754, tokens: 321543 }
+  },
+  { 
+    id: "4", 
+    name: "Research Labs", 
+    plan: "business", 
+    status: "suspended", 
+    users: 7, 
+    quota: { requests: 50000, tokens: 2000000 },
+    usage: { requests: 0, tokens: 0 }
+  }
+]
+
+// Mock resource isolation settings
+const mockIsolationSettings = {
+  dataIsolation: true,
+  endpointIsolation: true,
+  computeIsolation: false,
+  networkIsolation: false,
+  resourceQuotas: true,
+  defaultQuota: {
+    requests: 10000,
+    tokens: 500000
+  }
+}
+
 export default function SettingsPage() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState("system")
   const [theme, setTheme] = useState("system")
   const [users, setUsers] = useState(mockUsers)
+  const [tenants, setTenants] = useState(mockTenants)
+  const [isolationSettings, setIsolationSettings] = useState(mockIsolationSettings)
   const [metrics, setMetrics] = useState({
     collectAnonymousUsage: true,
     errorReporting: true,
@@ -52,6 +109,16 @@ export default function SettingsPage() {
     ))
   }
 
+  // Toggle tenant status
+  const toggleTenantStatus = (tenantId: string) => {
+    setTenants(tenants.map(tenant => 
+      tenant.id === tenantId ? { 
+        ...tenant, 
+        status: tenant.status === "active" ? "suspended" : "active" 
+      } : tenant
+    ))
+  }
+
   return (
     <DashboardLayout>
       <div className="flex flex-col gap-4">
@@ -65,9 +132,10 @@ export default function SettingsPage() {
         </div>
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="system">System</TabsTrigger>
             <TabsTrigger value="users">Users & Permissions</TabsTrigger>
+            <TabsTrigger value="tenants">Multi-tenant</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
           </TabsList>
@@ -333,6 +401,235 @@ export default function SettingsPage() {
               <CardFooter>
                 <Button>Save Permissions</Button>
               </CardFooter>
+            </Card>
+          </TabsContent>
+          
+          {/* Multi-tenant Isolation */}
+          <TabsContent value="tenants" className="space-y-4 mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Multi-tenant Isolation</CardTitle>
+                <CardDescription>
+                  Configure isolation settings for multi-tenant deployments
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <h3 className="text-lg font-medium">Isolation Settings</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label htmlFor="data-isolation">Data Isolation</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Separate data storage for each tenant
+                          </p>
+                        </div>
+                        <Switch 
+                          id="data-isolation" 
+                          checked={isolationSettings.dataIsolation}
+                          onCheckedChange={(checked) => 
+                            setIsolationSettings({...isolationSettings, dataIsolation: checked})
+                          }
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label htmlFor="endpoint-isolation">Endpoint Isolation</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Dedicated API endpoints per tenant
+                          </p>
+                        </div>
+                        <Switch 
+                          id="endpoint-isolation" 
+                          checked={isolationSettings.endpointIsolation}
+                          onCheckedChange={(checked) => 
+                            setIsolationSettings({...isolationSettings, endpointIsolation: checked})
+                          }
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label htmlFor="compute-isolation">Compute Isolation</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Dedicated compute resources per tenant
+                          </p>
+                        </div>
+                        <Switch 
+                          id="compute-isolation" 
+                          checked={isolationSettings.computeIsolation}
+                          onCheckedChange={(checked) => 
+                            setIsolationSettings({...isolationSettings, computeIsolation: checked})
+                          }
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label htmlFor="network-isolation">Network Isolation</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Separate network configuration per tenant
+                          </p>
+                        </div>
+                        <Switch 
+                          id="network-isolation" 
+                          checked={isolationSettings.networkIsolation}
+                          onCheckedChange={(checked) => 
+                            setIsolationSettings({...isolationSettings, networkIsolation: checked})
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-medium">Resource Quotas</h3>
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch 
+                        id="resource-quotas" 
+                        checked={isolationSettings.resourceQuotas}
+                        onCheckedChange={(checked) => 
+                          setIsolationSettings({...isolationSettings, resourceQuotas: checked})
+                        }
+                      />
+                      <Label htmlFor="resource-quotas">Enable resource quotas for tenants</Label>
+                    </div>
+                    
+                    {isolationSettings.resourceQuotas && (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="default-request-quota">Default Request Quota</Label>
+                            <span className="text-sm font-medium">{isolationSettings.defaultQuota.requests.toLocaleString()} requests/month</span>
+                          </div>
+                          <Slider 
+                            id="default-request-quota"
+                            defaultValue={[isolationSettings.defaultQuota.requests]}
+                            max={1000000}
+                            step={1000}
+                            onValueChange={(value) => 
+                              setIsolationSettings({
+                                ...isolationSettings, 
+                                defaultQuota: {...isolationSettings.defaultQuota, requests: value[0]}
+                              })
+                            }
+                          />
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="default-token-quota">Default Token Quota</Label>
+                            <span className="text-sm font-medium">{isolationSettings.defaultQuota.tokens.toLocaleString()} tokens/month</span>
+                          </div>
+                          <Slider 
+                            id="default-token-quota"
+                            defaultValue={[isolationSettings.defaultQuota.tokens]}
+                            max={10000000}
+                            step={10000}
+                            onValueChange={(value) => 
+                              setIsolationSettings({
+                                ...isolationSettings, 
+                                defaultQuota: {...isolationSettings.defaultQuota, tokens: value[0]}
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <Button>Save Isolation Settings</Button>
+              </CardFooter>
+            </Card>
+            
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Tenant Management</CardTitle>
+                  <CardDescription>
+                    Manage all tenants and their resource allocations
+                  </CardDescription>
+                </div>
+                <Button>Add Tenant</Button>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Plan</TableHead>
+                      <TableHead>Users</TableHead>
+                      <TableHead>Usage</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tenants.map((tenant) => (
+                      <TableRow key={tenant.id}>
+                        <TableCell className="font-medium">{tenant.name}</TableCell>
+                        <TableCell className="capitalize">{tenant.plan}</TableCell>
+                        <TableCell>{tenant.users}</TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2 text-sm">
+                              <span>Requests:</span>
+                              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                <div 
+                                  className="bg-blue-600 h-2.5 rounded-full" 
+                                  style={{ width: `${Math.min(100, (tenant.usage.requests / tenant.quota.requests) * 100)}%` }}
+                                ></div>
+                              </div>
+                              <span className="whitespace-nowrap">{Math.round((tenant.usage.requests / tenant.quota.requests) * 100)}%</span>
+                            </div>
+                            <div className="flex items-center space-x-2 text-sm">
+                              <span>Tokens:</span>
+                              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                <div 
+                                  className="bg-green-600 h-2.5 rounded-full" 
+                                  style={{ width: `${Math.min(100, (tenant.usage.tokens / tenant.quota.tokens) * 100)}%` }}
+                                ></div>
+                              </div>
+                              <span className="whitespace-nowrap">{Math.round((tenant.usage.tokens / tenant.quota.tokens) * 100)}%</span>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={tenant.status === "active" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}
+                          >
+                            {tenant.status === "active" ? "Active" : "Suspended"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center space-x-2">
+                            <Button variant="outline" size="sm">Edit</Button>
+                            <Button 
+                              variant={tenant.status === "active" ? "destructive" : "outline"}
+                              size="sm"
+                              onClick={() => toggleTenantStatus(tenant.id)}
+                            >
+                              {tenant.status === "active" ? "Suspend" : "Activate"}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
             </Card>
           </TabsContent>
           
