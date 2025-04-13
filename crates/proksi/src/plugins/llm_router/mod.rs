@@ -26,6 +26,8 @@ pub enum LlmProvider {
     Anthropic,
     GoogleVertexAI,
     AzureOpenAI,
+    Cohere,
+    Mistral,
     Custom,
 }
 
@@ -36,6 +38,8 @@ impl From<&str> for LlmProvider {
             "anthropic" => LlmProvider::Anthropic,
             "google" | "vertex" | "vertexai" => LlmProvider::GoogleVertexAI,
             "azure" | "azureopenai" => LlmProvider::AzureOpenAI,
+            "cohere" => LlmProvider::Cohere,
+            "mistral" | "mistralai" => LlmProvider::Mistral,
             _ => LlmProvider::Custom,
         }
     }
@@ -156,6 +160,8 @@ impl MiddlewarePlugin for LlmRouter {
         
         // 获取配置名
         let config_name = get_required_config(config_data, "config_name").unwrap_or_else(|_| "default".to_string());
+        // Store config_name in context for later use
+        state.extensions.insert(Cow::Borrowed("llm_router_config_name"), config_name.clone());
         
         // 确定要使用的LLM提供商
         if let Some((provider_name, endpoint)) = self.determine_provider(session, &config_name).await? {
@@ -182,16 +188,42 @@ impl MiddlewarePlugin for LlmRouter {
         upstream_request: &mut RequestHeader,
         state: &mut RouterContext,
     ) -> Result<()> {
-        // 如果之前确定了LLM提供商，修改请求以使用该提供商
-        if let Some(provider) = state.extensions.get(&Cow::Borrowed("llm_provider")) {
-            // 添加自定义头，标识使用的提供商
-            upstream_request.insert_header("X-LLM-Provider", HeaderValue::from_str(provider)?)?;
+        // If previously determined LLM provider, modify request
+        if let Some(provider_name) = state.extensions.get(&Cow::Borrowed("llm_provider")) {
+            // Add custom header identifying the provider
+            upstream_request.insert_header("X-LLM-Provider", HeaderValue::from_str(provider_name)?)?;
             
-            // 可以在这里添加更多针对特定提供商的请求修改逻辑
-            if provider.contains("anthropic") {
-                upstream_request.insert_header("Anthropic-Version", HeaderValue::from_static("2023-06-01"))?;
-            } else if provider.contains("openai") {
-                // OpenAI特定头部
+            // Add provider-specific headers/auth
+            let config_name = state.extensions.get(&Cow::Borrowed("llm_router_config_name")).cloned().unwrap_or_else(|| "default".to_string());
+            if let Some(router_config) = self.config.get(&config_name) {
+                if let Some(provider_config) = router_config.providers.get(provider_name) {
+                    // Retrieve API key from environment variable if specified
+                    let api_key = provider_config.api_key_env.as_ref()
+                        .and_then(|env_var| std::env::var(env_var).ok());
+
+                    if provider_name.contains("anthropic") {
+                        upstream_request.insert_header("Anthropic-Version", HeaderValue::from_static("2023-06-01"))?;
+                        if let Some(key) = api_key {
+                            upstream_request.insert_header("x-api-key", HeaderValue::from_str(&key)?)?;
+                        }
+                    } else if provider_name.contains("openai") || provider_name.contains("azure") {
+                        if let Some(key) = api_key {
+                            upstream_request.insert_header("Authorization", HeaderValue::from_str(&format!("Bearer {}", key))?)?;
+                            // Azure might need 'api-key' instead or in addition
+                            if provider_name.contains("azure") {
+                                upstream_request.insert_header("api-key", HeaderValue::from_str(&key)?)?;
+                            }
+                        }
+                    } else if provider_name.contains("cohere") || provider_name.contains("mistral") {
+                         if let Some(key) = api_key {
+                            upstream_request.insert_header("Authorization", HeaderValue::from_str(&format!("Bearer {}", key))?)?;
+                        }
+                    } else if provider_name.contains("google") {
+                        // Google typically uses API keys appended to the URL or specific auth mechanisms
+                        // Handle Google auth if needed, potentially modifying the URI or adding specific headers
+                        // For simplicity, assuming API key is handled elsewhere or not needed in header
+                    }
+                }
             }
         }
         
@@ -237,6 +269,8 @@ mod tests {
         assert!(matches!(LlmProvider::from("anthropic"), LlmProvider::Anthropic));
         assert!(matches!(LlmProvider::from("vertex"), LlmProvider::GoogleVertexAI));
         assert!(matches!(LlmProvider::from("azure"), LlmProvider::AzureOpenAI));
+        assert!(matches!(LlmProvider::from("cohere"), LlmProvider::Cohere));
+        assert!(matches!(LlmProvider::from("mistral"), LlmProvider::Mistral));
         assert!(matches!(LlmProvider::from("unknown"), LlmProvider::Custom));
     }
 } 

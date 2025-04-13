@@ -32,6 +32,24 @@ mod ai_gateway_tests {
                 models: vec!["claude-3-opus".to_string()],
             },
         );
+        providers.insert(
+            "cohere-command-r".to_string(),
+            LlmProviderConfig {
+                endpoint: "https://api.cohere.ai/v1/chat".to_string(),
+                api_key_env: Some("COHERE_API_KEY".to_string()),
+                weight: Some(1),
+                models: vec!["command-r".to_string(), "command-r-plus".to_string()],
+            },
+        );
+        providers.insert(
+            "mistral-medium".to_string(),
+            LlmProviderConfig {
+                endpoint: "https://api.mistral.ai/v1/chat/completions".to_string(),
+                api_key_env: Some("MISTRAL_API_KEY".to_string()),
+                weight: Some(1),
+                models: vec!["mistral-medium".to_string()],
+            },
+        );
 
         LlmRouterConfig {
             default_provider: LlmProvider::OpenAI,
@@ -111,9 +129,11 @@ mod ai_gateway_tests {
         let config = create_test_llm_router_config();
         
         // 验证配置的基本属性
-        assert_eq!(config.providers.len(), 2);
+        assert_eq!(config.providers.len(), 4);
         assert!(config.providers.contains_key("openai-gpt4"));
         assert!(config.providers.contains_key("anthropic-claude"));
+        assert!(config.providers.contains_key("cohere-command-r"));
+        assert!(config.providers.contains_key("mistral-medium"));
         assert!(matches!(config.default_provider, LlmProvider::OpenAI));
         assert!(config.semantic_routing_enabled);
         
@@ -134,6 +154,26 @@ mod ai_gateway_tests {
             assert_eq!(anthropic.models, vec!["claude-3-opus"]);
         } else {
             panic!("Anthropic provider missing");
+        }
+
+        // Added assertions for Cohere
+        if let Some(cohere) = config.providers.get("cohere-command-r") {
+            assert_eq!(cohere.endpoint, "https://api.cohere.ai/v1/chat");
+            assert_eq!(cohere.api_key_env, Some("COHERE_API_KEY".to_string()));
+            assert_eq!(cohere.weight, Some(1));
+            assert_eq!(cohere.models, vec!["command-r", "command-r-plus"]);
+        } else {
+            panic!("Cohere provider missing");
+        }
+        
+        // Added assertions for Mistral
+        if let Some(mistral) = config.providers.get("mistral-medium") {
+            assert_eq!(mistral.endpoint, "https://api.mistral.ai/v1/chat/completions");
+            assert_eq!(mistral.api_key_env, Some("MISTRAL_API_KEY".to_string()));
+            assert_eq!(mistral.weight, Some(1));
+            assert_eq!(mistral.models, vec!["mistral-medium"]);
+        } else {
+            panic!("Mistral provider missing");
         }
     }
 

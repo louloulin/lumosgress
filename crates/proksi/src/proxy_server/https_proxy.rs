@@ -59,6 +59,7 @@ pub struct RouterContext {
     pub route_container: RouteStoreContainer,
     pub upstream: RouteUpstream,
     pub extensions: HashMap<Cow<'static, str>, String>,
+    pub is_websocket: bool,
 
     pub timings: RouterTimings,
 }
@@ -79,6 +80,7 @@ impl ProxyHttp for Router {
             route_container: RouteStoreContainer::default(),
             upstream: RouteUpstream::default(),
             extensions: HashMap::with_capacity(2),
+            is_websocket: false,
 
             timings: RouterTimings {
                 request_filter_start: std::time::Instant::now(),
@@ -94,11 +96,37 @@ impl ProxyHttp for Router {
         session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> pingora::Result<bool> {
+        let req_header = session.req_header();
         let req_host = get_host(session);
         let host_without_port = req_host.split(':').collect::<Vec<_>>()[0];
         host_without_port.clone_into(&mut ctx.host);
 
         ctx.host = host_without_port.to_string();
+
+        // Detect WebSocket upgrade request by checking Connection and Upgrade headers
+        let is_upgrade = req_header
+            .headers
+            .get(http::header::CONNECTION)
+            .map_or(false, |h| {
+                h.to_str()
+                    .unwrap_or("")
+                    .split(',')
+                    .any(|p| p.trim().eq_ignore_ascii_case("Upgrade"))
+            });
+
+        let is_websocket_upgrade = req_header
+            .headers
+            .get(http::header::UPGRADE)
+            .map_or(false, |h| {
+                h.to_str()
+                    .unwrap_or("")
+                    .eq_ignore_ascii_case("websocket")
+            });
+
+        if is_upgrade && is_websocket_upgrade {
+            ctx.is_websocket = true;
+            tracing::debug!("WebSocket upgrade request detected for host: {}", ctx.host);
+        }
 
         // If there's no host matching, returns a 404
         let Some(route_container) = stores::get_route_by_key(host_without_port) else {
@@ -107,7 +135,7 @@ impl ProxyHttp for Router {
         };
 
         // Match request pattern based on the URI
-        let uri = get_uri(session);
+        let uri = req_header.uri.clone();
 
         match &route_container.path_matcher.pattern {
             Some(pattern) if pattern.find(uri.path()).is_none() => {
@@ -117,14 +145,20 @@ impl ProxyHttp for Router {
             _ => {}
         }
 
-        // Middleware phase: request_filterx
-        // We are checking to see if the request has already been handled
-        // by the plugins i.e. (ok(true))
-        if let Ok(true) = execute_request_plugins(session, ctx, &route_container.plugins).await {
-            return Ok(true);
+        // Middleware phase: request_filter
+        // Skip some plugins for WebSocket requests if needed
+        if !ctx.is_websocket {
+            if let Ok(true) = execute_request_plugins(session, ctx, &route_container.plugins).await {
+                return Ok(true);
+            }
+        } else {
+            // Optionally, execute specific WebSocket-compatible plugins here
+            // For now, we bypass general request plugins for WebSockets
+            tracing::debug!("Bypassing general request plugins for WebSocket request");
         }
 
-        if route_container.cache.is_some() {
+        // Skip caching for WebSocket requests
+        if route_container.cache.is_some() && !ctx.is_websocket {
             let cache = route_container.cache.as_ref().unwrap();
             if cache.enabled.unwrap_or(false) {
                 let storage = get_cache_storage(&cache.cache_type);
@@ -138,6 +172,8 @@ impl ProxyHttp for Router {
                     .cache
                     .enable(storage, None, None, Some(&*CACHE_LOCK));
             }
+        } else if ctx.is_websocket {
+            tracing::debug!("Disabling cache for WebSocket request");
         }
 
         ctx.route_container = route_container.clone();
@@ -202,6 +238,12 @@ impl ProxyHttp for Router {
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
     ) -> pingora::Result<()> {
+        // Skip response modifications for WebSocket connections after handshake
+        if ctx.is_websocket && upstream_response.status == 101 {
+            tracing::debug!("Bypassing response filter for WebSocket connection");
+            return Ok(());
+        }
+
         // If there's no host matching, returns a 404
         let route_container = &ctx.route_container;
 
@@ -230,7 +272,7 @@ impl ProxyHttp for Router {
             )?;
         }
 
-        // Middleware phase: response_filterx
+        // Middleware phase: response_filter
         execute_response_plugins(session, ctx).await?;
 
         Ok(())
@@ -282,12 +324,15 @@ impl ProxyHttp for Router {
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
     ) {
-        // If there's no host matching, returns a 404
-        // let route_container = process_route(ctx);
+        // Skip upstream response modifications for WebSocket connections after handshake
+        if ctx.is_websocket && upstream_response.status == 101 {
+            tracing::debug!("Bypassing upstream response filter for WebSocket connection");
+            return;
+        }
 
+        // Middleware phase: upstream_response_filter
+        // Errors from individual plugins are handled within this function call
         execute_upstream_response_plugins(session, upstream_response, ctx);
-
-        //
     }
 
     /// This filter is called when the entire response is sent to the downstream successfully or

@@ -41,16 +41,31 @@ router {
             "openai" = {
               endpoint = "api.openai.com/v1/chat/completions"
               models = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"]
+              api_key_env = "OPENAI_API_KEY" // Env var for API key
             }
             
             "anthropic" = {
               endpoint = "api.anthropic.com/v1/messages"
-              models = ["claude-2", "claude-instant-1"]
+              models = ["claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"]
+              api_key_env = "ANTHROPIC_API_KEY" // Env var for API key
             }
             
             "azure-openai" = {
               endpoint = "your-azure-instance.openai.azure.com/openai/deployments/your-deployment/chat/completions"
               models = ["gpt-4"]
+              api_key_env = "AZURE_OPENAI_API_KEY" // Env var for API key
+            }
+
+            "cohere" = {
+              endpoint = "api.cohere.ai/v1/chat"
+              models = ["command-r", "command-r-plus"]
+              api_key_env = "COHERE_API_KEY" // Env var for API key
+            }
+
+            "mistral" = {
+              endpoint = "api.mistral.ai/v1/chat/completions"
+              models = ["mistral-tiny", "mistral-small", "mistral-medium", "mistral-large"]
+              api_key_env = "MISTRAL_API_KEY" // Env var for API key
             }
           }
         }
