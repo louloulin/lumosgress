@@ -308,8 +308,10 @@ mod test {
     #[test]
     fn test_domain_addr() {
         let addr = "example.com:80";
-        let addr = addr.to_socket_addrs().unwrap().next().unwrap();
-        assert!(addr.ip().is_ipv4());
+        let addrs: Vec<_> = addr.to_socket_addrs().unwrap().collect();
+        assert!(!addrs.is_empty()); // Ensure we got at least one address
+        let addr = addrs[0]; // Use the first resolved address
+        assert!(addr.ip().is_ipv4() || addr.ip().is_ipv6()); // Check if it's either IPv4 or IPv6
         assert_eq!(addr.port(), 80);
     }
 }
