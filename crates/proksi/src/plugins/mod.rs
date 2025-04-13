@@ -8,6 +8,8 @@ use once_cell::sync::Lazy;
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
 use request_id::RequestId;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
 
@@ -25,6 +27,9 @@ pub mod ai_analytics;
 pub mod ai_request_builder;
 pub mod prompt_debugger;
 pub mod performance_analyzer;
+
+pub mod tenant;
+pub mod compliance;
 
 use llm_router::LlmRouter;
 use prompt_transform::PromptTransformer;
@@ -121,4 +126,31 @@ pub trait MiddlewarePlugin {
         upstream_response: &mut ResponseHeader,
         state: &mut RouterContext,
     ) -> Result<()>;
+}
+
+#[derive(Debug, Error)]
+pub enum PluginError {
+    #[error("Plugin initialization failed: {0}")]
+    InitializationFailed(String),
+    #[error("{0} already exists")]
+    AlreadyExists(&'static str),
+    // 其他错误类型...
+}
+
+#[async_trait]
+pub trait Plugin: Send + Sync {
+    type Config: PluginConfig;
+    
+    async fn new(config: Self::Config) -> Result<Self, PluginError>
+    where
+        Self: Sized;
+    
+    fn name(&self) -> &'static str;
+}
+
+pub trait PluginConfig: Send + Sync + 'static + Serialize + for<'de> Deserialize<'de> {
+    // 可选的配置验证方法
+    fn validate(&self) -> Result<(), PluginError> {
+        Ok(())
+    }
 }

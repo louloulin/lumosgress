@@ -12,12 +12,13 @@ use pingora::{listeners::tls::TlsSettings, proxy::http_proxy_service, server::co
 use proxy_server::cert_store::CertStore;
 use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService};
 
+use plugins::{Plugin, tenant::TenantPlugin, compliance::CompliancePlugin};
+
 mod cache;
 mod channel;
 mod config;
 mod plugins;
 mod proxy_server;
-mod server;
 mod services;
 mod stores;
 mod tools;
@@ -178,6 +179,26 @@ fn main() -> Result<(), anyhow::Error> {
         workers = proxy_config.worker_threads,
         server_info,
     );
+
+    async fn initialize_plugins() -> Result<(), Box<dyn std::error::Error>> {
+        // 初始化租户插件
+        let tenant_plugin = TenantPlugin::new(tenant::TenantPluginConfig {
+            default_quota: ResourceQuota { /* 配置 */ },
+            isolation_enabled: true,
+        }).await?;
+
+        // 初始化合规插件
+        let compliance_plugin = CompliancePlugin::new(compliance::CompliancePluginConfig {
+            retention_period_days: 30,
+            alert_threshold: 0.9,
+        }).await?;
+
+        // 注册插件到插件管理器
+        plugin_manager::register(tenant_plugin);
+        plugin_manager::register(compliance_plugin);
+
+        Ok(())
+    }
 
     pingora_server.run_forever();
 }
