@@ -64,6 +64,14 @@ fn main() -> Result<(), anyhow::Error> {
     let proxy_config =
         Arc::new(load("/etc/proksi/configs").expect("Failed to load configuration: "));
 
+    // 启动 API 服务器
+    let config_clone = proxy_config.clone();
+    tokio::spawn(async move {
+        if let Err(e) = server::start_api_server(config_clone).await {
+            tracing::error!("API server error: {}", e);
+        }
+    });
+
     let https_address = proxy_config
         .server
         .https_address
