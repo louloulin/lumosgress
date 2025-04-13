@@ -483,6 +483,65 @@ impl Default for AutoReload {
     }
 }
 
+/// Configuration for multi-tenant isolation features
+#[derive(Debug, Serialize, Deserialize, Clone, Args)]
+#[group(id = "tenant")]
+pub struct TenantConfig {
+    /// Enable multi-tenant isolation
+    #[arg(long = "tenant.enabled", default_value = "false")]
+    pub enabled: bool,
+    
+    /// Header used to identify tenant
+    #[arg(long = "tenant.id_header", default_value = "x-tenant-id")]
+    pub tenant_id_header: String,
+    
+    /// Default request quota for tenants
+    #[arg(long = "tenant.default_quota.requests", default_value = "10000")]
+    pub default_quota_requests: u64,
+    
+    /// Default token quota for tenants
+    #[arg(long = "tenant.default_quota.tokens", default_value = "500000")]
+    pub default_quota_tokens: u64,
+}
+
+impl Default for TenantConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tenant_id_header: "x-tenant-id".to_string(),
+            default_quota_requests: 10000,
+            default_quota_tokens: 500000,
+        }
+    }
+}
+
+/// Configuration for compliance reporting features
+#[derive(Debug, Serialize, Deserialize, Clone, Args)]
+#[group(id = "compliance")]
+pub struct ComplianceConfig {
+    /// Enable compliance reporting
+    #[arg(long = "compliance.enabled", default_value = "false")]
+    pub enabled: bool,
+    
+    /// Retention period in days for compliance data
+    #[arg(long = "compliance.retention_days", default_value = "90")]
+    pub retention_days: u32,
+    
+    /// Alert threshold for compliance violations (0.0-1.0)
+    #[arg(long = "compliance.alert_threshold", default_value = "0.85")]
+    pub alert_threshold: f64,
+}
+
+impl Default for ComplianceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            retention_days: 90,
+            alert_threshold: 0.85,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Parser)]
 pub struct ServerCfg {
     /// The address to bind the HTTPS server to.
@@ -502,6 +561,122 @@ pub struct ServerCfg {
         default_value = "0.0.0.0:80"
     )]
     pub http_address: Option<Cow<'static, str>>,
+}
+
+/// Configuration for monitoring and alerting
+#[derive(Debug, Serialize, Deserialize, Clone, Args)]
+#[group(id = "monitoring")]
+pub struct MonitoringConfig {
+    /// Enable monitoring and alerting
+    #[arg(long = "monitoring.enabled", default_value = "false")]
+    pub enabled: bool,
+    
+    /// Alert threshold for monitoring violations (0.0-1.0)
+    #[arg(long = "monitoring.alert_threshold", default_value = "0.85")]
+    pub alert_threshold: f64,
+    
+    /// Data retention period in days
+    #[arg(long = "monitoring.retention_days", default_value = "30")]
+    pub retention_days: u32,
+    
+    /// Enable anomaly detection
+    #[arg(long = "monitoring.anomaly_detection", default_value = "true")]
+    pub anomaly_detection: bool,
+    
+    /// Sample rate for metrics collection (0.0-1.0)
+    #[arg(long = "monitoring.sample_rate", default_value = "1.0")]
+    pub sample_rate: f64,
+    
+    /// Override API endpoint for monitoring dashboard
+    #[arg(long = "monitoring.dashboard_endpoint", default_value = "/monitoring")]
+    pub dashboard_endpoint: String,
+    
+    /// Override API endpoint for alerts
+    #[arg(long = "monitoring.alerts_endpoint", default_value = "/alerts")]
+    pub alerts_endpoint: String,
+    
+    /// Alert notification channels
+    #[clap(skip)]
+    pub alert_channels: Vec<AlertChannel>,
+    
+    /// Metrics to collect and monitor
+    #[clap(skip)]
+    pub metrics: Vec<MetricConfig>,
+}
+
+/// Configuration for alert notification channels
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AlertChannel {
+    /// Type of alert channel
+    pub channel_type: AlertChannelType,
+    
+    /// Configuration for the channel
+    pub config: HashMap<String, String>,
+}
+
+/// Alert channel types
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum AlertChannelType {
+    Log,
+    Webhook,
+    Email,
+    Slack,
+}
+
+/// Configuration for metrics collection
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MetricConfig {
+    /// Name of the metric
+    pub name: String,
+    
+    /// Description of the metric
+    pub description: String,
+    
+    /// Whether to enable this metric
+    pub enabled: bool,
+    
+    /// Alert threshold for this specific metric
+    pub threshold: Option<f64>,
+}
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            alert_threshold: 0.85,
+            retention_days: 30,
+            anomaly_detection: true,
+            sample_rate: 1.0,
+            dashboard_endpoint: "/monitoring".to_string(),
+            alerts_endpoint: "/alerts".to_string(),
+            alert_channels: vec![
+                AlertChannel {
+                    channel_type: AlertChannelType::Log,
+                    config: HashMap::new(),
+                },
+            ],
+            metrics: vec![
+                MetricConfig {
+                    name: "request_count".to_string(),
+                    description: "Total number of AI requests".to_string(),
+                    enabled: true,
+                    threshold: None,
+                },
+                MetricConfig {
+                    name: "response_time".to_string(),
+                    description: "Average response time in milliseconds".to_string(),
+                    enabled: true,
+                    threshold: Some(2000.0), // 2 seconds
+                },
+                MetricConfig {
+                    name: "error_rate".to_string(),
+                    description: "Percentage of requests that result in errors".to_string(),
+                    enabled: true,
+                    threshold: Some(0.05), // 5%
+                },
+            ],
+        }
+    }
 }
 
 /// The main configuration struct.
@@ -598,6 +773,18 @@ pub(crate) struct Config {
     #[clap(skip)]
     pub paths: Path,
 
+    /// Configuration for multi-tenant isolation
+    #[clap(skip)]
+    pub tenant: TenantConfig,
+
+    /// Configuration for compliance features
+    #[clap(skip)]
+    pub compliance: ComplianceConfig,
+
+    /// Configuration for monitoring and alerting
+    #[clap(skip)]
+    pub monitoring: MonitoringConfig,
+
     /// The routes to be proxied to.
     #[clap(skip)]
     pub routes: Vec<Route>,
@@ -632,6 +819,9 @@ impl Default for Config {
                 rotation: LogRotation::Never,
             },
             paths: Path::default(),
+            tenant: TenantConfig::default(),
+            compliance: ComplianceConfig::default(),
+            monitoring: MonitoringConfig::default(),
         }
     }
 }
