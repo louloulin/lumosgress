@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { ProksiClient } from '../client';
-import { VectorUpsertRequest, VectorSearchRequest, VectorSearchResponse } from '../types';
+import { VectorUpsertRequest, VectorSearchRequest, VectorSearchResponse, VectorDeleteRequest } from '../types';
 
 // Mock axios
 jest.mock('axios');
@@ -25,8 +25,7 @@ describe('ProksiClient Vector Operations', () => {
   describe('upsertVectors', () => {
     test('should successfully upsert vectors', async () => {
       const mockRequest: VectorUpsertRequest = {
-        collection: 'test-collection',
-        provider: 'pinecone',
+        namespace: 'test-namespace',
         vectors: [
           {
             id: 'vec-1',
@@ -56,8 +55,7 @@ describe('ProksiClient Vector Operations', () => {
     
     test('should handle errors during upsert', async () => {
       const mockRequest: VectorUpsertRequest = {
-        collection: 'test-collection',
-        provider: 'pinecone',
+        namespace: 'test-namespace',
         vectors: [
           {
             id: 'vec-1',
@@ -89,15 +87,15 @@ describe('ProksiClient Vector Operations', () => {
   describe('searchVectors', () => {
     test('should successfully search vectors', async () => {
       const mockRequest: VectorSearchRequest = {
-        collection: 'test-collection',
-        provider: 'pinecone',
-        vector: [0.1, 0.2, 0.3],
+        namespace: 'test-namespace',
+        query_vector: [0.1, 0.2, 0.3],
         top_k: 2,
         filter: { source: 'test' }
       };
       
       const mockResponse: VectorSearchResponse = {
-        matches: [
+        namespace: 'test-namespace',
+        results: [
           {
             id: 'vec-1',
             score: 0.95,
@@ -121,29 +119,28 @@ describe('ProksiClient Vector Operations', () => {
     
     test('should handle empty search results', async () => {
       const mockRequest: VectorSearchRequest = {
-        collection: 'test-collection',
-        provider: 'pinecone',
-        vector: [0.1, 0.2, 0.3],
+        namespace: 'test-namespace',
+        query_vector: [0.1, 0.2, 0.3],
         top_k: 2
       };
       
       const mockResponse: VectorSearchResponse = {
-        matches: []
+        namespace: 'test-namespace',
+        results: []
       };
       
       mockedAxios.post.mockResolvedValueOnce({ data: mockResponse });
       
       const response = await client.searchVectors(mockRequest);
       
-      expect(response.matches).toHaveLength(0);
+      expect(response.results).toHaveLength(0);
     });
   });
 
   describe('deleteVectors', () => {
     test('should successfully delete vectors by IDs', async () => {
-      const mockRequest = {
-        collection: 'test-collection',
-        provider: 'pinecone',
+      const mockRequest: VectorDeleteRequest = {
+        namespace: 'test-namespace',
         ids: ['vec-1', 'vec-2']
       };
       
@@ -158,27 +155,6 @@ describe('ProksiClient Vector Operations', () => {
       
       expect(mockedAxios.post).toHaveBeenCalledWith('/v1/vectors/delete', mockRequest);
       expect(response).toEqual(mockResponse);
-    });
-    
-    test('should successfully delete vectors by filter', async () => {
-      const mockRequest = {
-        collection: 'test-collection',
-        provider: 'pinecone',
-        filter: { source: 'test' }
-      };
-      
-      const mockResponse = {
-        message: 'Vectors deleted successfully',
-        count: 5
-      };
-      
-      mockedAxios.post.mockResolvedValueOnce({ data: mockResponse });
-      
-      const response = await client.deleteVectors(mockRequest);
-      
-      expect(mockedAxios.post).toHaveBeenCalledWith('/v1/vectors/delete', mockRequest);
-      expect(response).toEqual(mockResponse);
-      expect(response.count).toBe(5);
     });
   });
 }); 

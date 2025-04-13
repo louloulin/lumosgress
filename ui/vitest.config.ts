@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
@@ -8,6 +9,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     exclude: ['**/node_modules/**', '**/.next/**'],
+    setupFiles: ['./tests/setup.ts'],
   },
   resolve: {
     alias: {

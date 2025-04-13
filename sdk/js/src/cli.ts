@@ -4,10 +4,10 @@ import { Command } from 'commander';
 import * as readline from 'readline';
 import chalk from 'chalk';
 import { ProksiClient } from './client';
-import { CompletionRequest } from './types';
+import { CompletionRequest, Message } from './types';
 import dotenv from 'dotenv';
 import ora from 'ora';
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 
 // Load environment variables
 dotenv.config();
@@ -36,6 +36,16 @@ function getClient() {
   });
 }
 
+// Helper to load JSON file
+function loadJsonFile(filePath: string): any {
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    return JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Failed to load file: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 // Completion command
 program
   .command('completion')
@@ -51,13 +61,15 @@ program
     const spinner = ora('Sending request...').start();
 
     try {
+      const messages: Message[] = [
+        ...(options.system ? [{ role: 'system' as const, content: options.system }] : []),
+        { role: 'user' as const, content: prompt }
+      ];
+
       const request: CompletionRequest = {
         provider: options.provider,
         model: options.model,
-        messages: [
-          ...(options.system ? [{ role: 'system', content: options.system }] : []),
-          { role: 'user', content: prompt }
-        ],
+        messages,
         temperature: parseFloat(options.temperature),
       };
 
@@ -95,13 +107,15 @@ program
     let output = '';
 
     try {
+      const messages: Message[] = [
+        ...(options.system ? [{ role: 'system' as const, content: options.system }] : []),
+        { role: 'user' as const, content: prompt }
+      ];
+
       const request: CompletionRequest = {
         provider: options.provider,
         model: options.model,
-        messages: [
-          ...(options.system ? [{ role: 'system', content: options.system }] : []),
-          { role: 'user', content: prompt }
-        ],
+        messages,
         temperature: parseFloat(options.temperature),
       };
 
@@ -143,7 +157,7 @@ program
   .option('-m, --metadata <json>', 'Vector metadata as JSON string', '{}')
   .option('-f, --file <file>', 'File containing vector values (JSON array) - alternative to inline values')
   .argument('[values...]', 'Vector values (space-separated numbers) - not needed if using --file')
-  .action(async (values, options) => {
+  .action(async (values: string[], options) => {
     const client = getClient();
     const spinner = ora('Upserting vectors...').start();
 
@@ -152,7 +166,7 @@ program
       
       if (options.file) {
         try {
-          const fileContent = require(options.file);
+          const fileContent = loadJsonFile(options.file);
           if (!Array.isArray(fileContent)) {
             throw new Error('File must contain a JSON array of numbers');
           }
@@ -163,7 +177,7 @@ program
           return;
         }
       } else if (values.length > 0) {
-        vectorValues = values.map(v => parseFloat(v));
+        vectorValues = values.map((v: string) => parseFloat(v));
       } else {
         spinner.fail('No vector values provided');
         console.error(chalk.red('Error: Please provide vector values either inline or via file'));
@@ -199,7 +213,7 @@ program
   .option('-f, --filter <json>', 'Filter as JSON string', '{}')
   .option('--file <file>', 'File containing query vector (JSON array) - alternative to inline values')
   .argument('[values...]', 'Query vector values (space-separated numbers) - not needed if using --file')
-  .action(async (values, options) => {
+  .action(async (values: string[], options) => {
     const client = getClient();
     const spinner = ora('Searching vectors...').start();
 
@@ -208,7 +222,7 @@ program
       
       if (options.file) {
         try {
-          const fileContent = require(options.file);
+          const fileContent = loadJsonFile(options.file);
           if (!Array.isArray(fileContent)) {
             throw new Error('File must contain a JSON array of numbers');
           }
@@ -219,7 +233,7 @@ program
           return;
         }
       } else if (values.length > 0) {
-        queryVector = values.map(v => parseFloat(v));
+        queryVector = values.map((v: string) => parseFloat(v));
       } else {
         spinner.fail('No query vector values provided');
         console.error(chalk.red('Error: Please provide query vector values either inline or via file'));
@@ -285,8 +299,8 @@ program
   .option('-s, --system <system>', 'System message to use', 'You are a helpful AI assistant.')
   .action((options) => {
     const client = getClient();
-    const messages = [
-      { role: 'system', content: options.system }
+    const messages: Message[] = [
+      { role: 'system' as const, content: options.system }
     ];
     
     console.log(chalk.green('Starting interactive chat session...'));
@@ -309,7 +323,7 @@ program
         return;
       }
       
-      messages.push({ role: 'user', content: input });
+      messages.push({ role: 'user' as const, content: input });
       const spinner = ora('Thinking...').start();
       
       try {

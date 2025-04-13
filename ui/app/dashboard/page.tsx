@@ -3,6 +3,8 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TrafficChart } from "@/components/dashboard/traffic-chart"
+import { LlmUsageChart } from "@/components/dashboard/llm-usage-chart"
 
 export default function DashboardPage() {
   return (
@@ -87,15 +89,7 @@ export default function DashboardPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="h-[300px]">
-                  {/* Chart placeholder */}
-                  <div className="flex h-full items-center justify-center rounded-md border border-dashed">
-                    <div className="text-center">
-                      <p className="text-muted-foreground">Chart placeholder</p>
-                      <p className="text-xs text-muted-foreground">
-                        (Charts will be implemented with Chart.js or Recharts)
-                      </p>
-                    </div>
-                  </div>
+                  <TrafficChart />
                 </CardContent>
               </Card>
               <Card className="col-span-3">
@@ -243,19 +237,74 @@ export default function DashboardPage() {
             </Card>
           </TabsContent>
           <TabsContent value="llm-usage" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Total Tokens
+                  </CardTitle>
+                  <SVGIcon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">3,349,000</div>
+                  <p className="text-xs text-muted-foreground">
+                    +15.2% from last month
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Avg. Token Usage
+                  </CardTitle>
+                  <TimerIcon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">1,234</div>
+                  <p className="text-xs text-muted-foreground">
+                    +10% from last week
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Cost
+                </CardTitle>
+                  <DollarIcon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">$1,234.56</div>
+                  <p className="text-xs text-muted-foreground">
+                    +$123.45 from last month
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Error Rate
+                  </CardTitle>
+                  <AlertTriangleIcon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">0.12%</div>
+                  <p className="text-xs text-muted-foreground">
+                    -0.04% from last week
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+            
             <Card>
               <CardHeader>
-                <CardTitle>LLM Providers Usage</CardTitle>
+                <CardTitle>LLM Provider Usage</CardTitle>
                 <CardDescription>
-                  Token usage and cost analysis by provider
+                  Request distribution across LLM providers
                 </CardDescription>
               </CardHeader>
-              <CardContent className="h-[400px]">
-                <div className="flex h-full items-center justify-center rounded-md border border-dashed">
-                  <div className="text-center">
-                    <p className="text-muted-foreground">LLM usage statistics will be implemented here</p>
-                  </div>
-                </div>
+              <CardContent className="h-[360px]">
+                <LlmUsageChart />
               </CardContent>
             </Card>
           </TabsContent>
@@ -364,6 +413,50 @@ function CircleIcon(props: React.SVGProps<SVGSVGElement>) {
       strokeLinejoin="round"
     >
       <circle cx="12" cy="12" r="10" />
+    </svg>
+  )
+}
+
+function SVGIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 22v-5" />
+      <path d="M9 8V2" />
+      <path d="M15 8V2" />
+      <path d="M18 8v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
+    </svg>
+  )
+}
+
+function DollarIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 22v-5" />
+      <path d="M9 8V2" />
+      <path d="M15 8V2" />
+      <path d="M18 8v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
     </svg>
   )
 } 
