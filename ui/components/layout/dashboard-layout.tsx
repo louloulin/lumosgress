@@ -95,6 +95,14 @@ const navItems: NavItem[] = [
     ],
   },
   {
+    title: "Documentation",
+    href: "/dashboard/documentation",
+  },
+  {
+    title: "Examples & Templates",
+    href: "/dashboard/examples",
+  },
+  {
     title: "Settings",
     href: "/dashboard/settings",
   },
