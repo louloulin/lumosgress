@@ -9,9 +9,23 @@ pub struct Tenant {
     pub name: String,
     pub plan: String, // "developer", "business", "enterprise"
     pub status: TenantStatus,
-    pub users: usize,
+    pub users: Vec<String>,
     pub quota: ResourceQuota,
     pub usage: ResourceUsage,
+}
+
+impl Default for Tenant {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            status: TenantStatus::Active,
+            quota: ResourceQuota::default(),
+            usage: ResourceUsage::default(),
+            plan: "basic".to_string(),
+            users: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -40,14 +54,14 @@ impl From<&str> for TenantStatus {
 }
 
 // 资源配额
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResourceQuota {
     pub requests: u64,  // 每月允许的请求数
     pub tokens: u64,    // 每月允许的令牌数
 }
 
 // 资源使用情况
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResourceUsage {
     pub requests: u64,  // 当前已使用的请求数
     pub tokens: u64,    // 当前已使用的令牌数
@@ -94,7 +108,7 @@ impl TenantService {
             name: "Enterprise Corp".to_string(),
             plan: "enterprise".to_string(),
             status: TenantStatus::Active,
-            users: 15,
+            users: Vec::new(),
             quota: ResourceQuota {
                 requests: 100000,
                 tokens: 5000000,

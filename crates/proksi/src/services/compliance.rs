@@ -146,4 +146,108 @@ impl ComplianceService {
             None
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn test_generate_report() {
+        let mut service = ComplianceService::new();
+        let start_time = Utc::now();
+        let end_time = start_time + Duration::days(7);
+
+        let report = service.generate_report(
+            "tenant1".to_string(),
+            ReportType::DataPrivacy,
+            start_time,
+            end_time,
+        );
+
+        assert_eq!(report.tenant_id, "tenant1");
+        assert_eq!(report.report_type, ReportType::DataPrivacy);
+        assert_eq!(report.status, ReportStatus::Pending);
+        assert!(report.violations.is_empty());
+    }
+
+    #[test]
+    fn test_add_violation() {
+        let mut service = ComplianceService::new();
+        let start_time = Utc::now();
+        let end_time = start_time + Duration::days(7);
+
+        let report = service.generate_report(
+            "tenant1".to_string(),
+            ReportType::DataPrivacy,
+            start_time,
+            end_time,
+        );
+
+        let updated_report = service.add_violation(
+            &report.id,
+            "rule1".to_string(),
+            ViolationSeverity::High,
+            "Test violation".to_string(),
+        );
+
+        assert!(updated_report.is_some());
+        let report = updated_report.unwrap();
+        assert_eq!(report.violations.len(), 1);
+        assert_eq!(report.violations[0].severity, ViolationSeverity::High);
+        assert_eq!(report.violations[0].description, "Test violation");
+    }
+
+    #[test]
+    fn test_update_report_status() {
+        let mut service = ComplianceService::new();
+        let start_time = Utc::now();
+        let end_time = start_time + Duration::days(7);
+
+        let report = service.generate_report(
+            "tenant1".to_string(),
+            ReportType::DataPrivacy,
+            start_time,
+            end_time,
+        );
+
+        let updated_report = service.update_report_status(&report.id, ReportStatus::Completed);
+        assert!(updated_report.is_some());
+        assert_eq!(updated_report.unwrap().status, ReportStatus::Completed);
+    }
+
+    #[test]
+    fn test_get_tenant_reports() {
+        let mut service = ComplianceService::new();
+        let start_time = Utc::now();
+        let end_time = start_time + Duration::days(7);
+
+        service.generate_report(
+            "tenant1".to_string(),
+            ReportType::DataPrivacy,
+            start_time,
+            end_time,
+        );
+
+        service.generate_report(
+            "tenant1".to_string(),
+            ReportType::Security,
+            start_time,
+            end_time,
+        );
+
+        service.generate_report(
+            "tenant2".to_string(),
+            ReportType::DataPrivacy,
+            start_time,
+            end_time,
+        );
+
+        let tenant1_reports = service.get_tenant_reports("tenant1");
+        assert_eq!(tenant1_reports.len(), 2);
+
+        let tenant2_reports = service.get_tenant_reports("tenant2");
+        assert_eq!(tenant2_reports.len(), 1);
+    }
 } 
