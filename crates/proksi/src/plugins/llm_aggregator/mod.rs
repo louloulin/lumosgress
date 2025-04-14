@@ -13,6 +13,10 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+// Import new Plugin trait and related types
+use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::proxy_server::HttpResponse;
+
 use crate::{
     config::RoutePlugin,
     plugins::get_required_config,
@@ -42,7 +46,7 @@ impl From<&str> for AggregationStrategy {
 }
 
 // LLM聚合配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LlmAggregatorConfig {
     pub strategy: AggregationStrategy,
     pub providers: Vec<String>,
@@ -51,6 +55,7 @@ pub struct LlmAggregatorConfig {
 }
 
 // 聚合请求的状态
+#[derive(Debug)]
 struct AggregationState {
     results: HashMap<String, Value>,
     completed: usize,
@@ -58,21 +63,30 @@ struct AggregationState {
     start_time: std::time::Instant,
 }
 
+// Modify LlmAggregator struct
+#[derive(Debug, Clone)]
 pub struct LlmAggregator {
-    pub config: Arc<HashMap<String, LlmAggregatorConfig>>,
-    // 使用请求ID作为键存储聚合状态
+    pub config: LlmAggregatorConfig,
+    // Use请求ID作为键存储聚合状态
     pub states: Arc<Mutex<HashMap<String, AggregationState>>>,
 }
 
 impl LlmAggregator {
     pub fn new() -> Self {
         Self {
-            config: Arc::new(HashMap::new()),
+            config: LlmAggregatorConfig::default(),
+            states: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+    
+    pub fn with_config(config: LlmAggregatorConfig) -> Self {
+        Self { 
+            config,
             states: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    // 从请求创建派生请求
+    // NOTE: This helper might be used if core supports aggregation
     async fn create_derived_requests(&self, session: &Session, providers: &[String]) -> Result<Vec<(String, Value)>> {
         let mut requests = Vec::new();
         
@@ -93,12 +107,69 @@ impl LlmAggregator {
     }
 }
 
-impl Clone for LlmAggregator {
-    fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            states: self.states.clone(),
+// Add new Plugin trait implementation structure
+#[async_trait]
+impl Plugin for LlmAggregator {
+    fn name(&self) -> &'static str {
+        "llm_aggregator"
+    }
+
+    async fn handle_request(
+        &self,
+        step: PluginStep,
+        _session: &mut Session,
+        ctx: &mut RouterContext,
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        // Placeholder: Ideally runs in Request step to potentially initiate aggregation
+        if step == PluginStep::Request {
+            let strategy_str = format!("{:?}", self.config.strategy);
+            info!(
+                strategy = strategy_str,
+                providers = ?self.config.providers,
+                "LlmAggregator: Intending to use strategy (Actual aggregation NOT implemented due to core limitations)."
+            );
+            // Store intended strategy for response header
+            ctx.plugins_data.insert(
+                "llm_aggregation_strategy".to_string(), 
+                Value::String(strategy_str)
+            );
+            // Store aggregation ID (could be used later if core supports it)
+            let agg_id = uuid::Uuid::new_v4().to_string();
+            ctx.plugins_data.insert(
+                "llm_aggregator_id".to_string(),
+                Value::String(agg_id)
+            );
         }
+        
+        // Always continue the request for now, as we cannot block/spawn requests
+        Ok((false, None)) 
+    }
+
+    async fn handle_response(
+        &self,
+        step: PluginStep,
+        _session: &mut Session,
+        ctx: &mut RouterContext,
+        upstream_response: &mut ResponseHeader,
+    ) -> Result<bool> {
+        // Add header in Response step based on stored strategy
+        if step == PluginStep::Response {
+            if let Some(strategy_val) = ctx.plugins_data.get("llm_aggregation_strategy") {
+                if let Some(strategy) = strategy_val.as_str() {
+                    upstream_response.insert_header("X-LLM-Aggregation", HeaderValue::from_str(strategy)?)?;
+                    return Ok(true); // Header added
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    async fn start(&mut self) -> Result<(), PluginError> {
+        Ok(()) // No specific start logic needed yet
+    }
+
+    async fn stop(&mut self) -> Result<(), PluginError> {
+        Ok(()) // No specific stop logic needed yet
     }
 }
 
@@ -191,12 +262,15 @@ impl MiddlewarePlugin for LlmAggregator {
 }
 */
 
-// 在静态注册表中注册插件
-pub static LLM_AGGREGATOR: Lazy<LlmAggregator> = Lazy::new(LlmAggregator::new);
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugins::core::PluginStep;
+    use crate::proxy_server::https_proxy::RouterContext;
+    use pingora::proxy::Session;
+    use http::HeaderValue;
+    use std::collections::HashMap;
+    use serde_json::Value;
     
     #[test]
     fn test_aggregation_strategy_from_str() {
@@ -205,4 +279,64 @@ mod tests {
         assert!(matches!(AggregationStrategy::from("chain"), AggregationStrategy::Chain));
         assert!(matches!(AggregationStrategy::from("unknown"), AggregationStrategy::FastestResult));
     }
+    
+    fn create_test_context() -> RouterContext {
+        RouterContext {
+            host: "test.example.com".to_string(),
+            route_container: Default::default(),
+            upstream: Default::default(),
+            extensions: HashMap::new(),
+            is_websocket: false,
+            timings: Default::default(),
+            upstream_response: None,
+            plugins_data: HashMap::new(),
+            request_id: String::new(),
+        }
+    }
+    
+    #[test]
+    fn test_plugin_creation_with_config() {
+        let config = LlmAggregatorConfig {
+            strategy: AggregationStrategy::CombineResults,
+            providers: vec!["openai".to_string(), "anthropic".to_string()],
+            timeout_ms: Some(5000),
+            weights: None,
+        };
+        
+        let plugin = LlmAggregator::with_config(config.clone());
+        assert!(matches!(plugin.config.strategy, AggregationStrategy::CombineResults));
+        assert_eq!(plugin.config.providers.len(), 2);
+        assert_eq!(plugin.states.lock().unwrap().len(), 0);
+    }
+    
+    #[tokio::test]
+    async fn test_handle_response_adds_header() {
+        let config = LlmAggregatorConfig {
+            strategy: AggregationStrategy::FastestResult,
+            providers: vec!["test".to_string()],
+            timeout_ms: None,
+            weights: None,
+        };
+        let plugin = LlmAggregator::with_config(config);
+        let mut session = Session::new_dummy();
+        let mut ctx = create_test_context();
+        let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
+
+        ctx.plugins_data.insert(
+            "llm_aggregation_strategy".to_string(), 
+            Value::String(format!("{:?}", plugin.config.strategy))
+        );
+        
+        let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+        
+        assert_eq!(
+            upstream_response.headers.get("X-LLM-Aggregation").unwrap().to_str().unwrap(), 
+            "FastestResult"
+        );
+    }
+    
+    // NOTE: Testing the core aggregation logic in handle_request requires 
+    // significant changes to the core plugin execution model.
 } 

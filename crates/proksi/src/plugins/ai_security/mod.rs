@@ -11,7 +11,7 @@ use pingora::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, debug};
 
 use crate::{
     config::RoutePlugin,
@@ -54,7 +54,7 @@ impl From<&str> for SecurityPolicyType {
 }
 
 // AI安全配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AiSecurityConfig {
     pub policies: Vec<SecurityPolicy>,
 }
@@ -80,19 +80,28 @@ pub enum SecurityAction {
     Sanitize,  // 尝试清理
 }
 
-// Add Debug derive
-#[derive(Debug)]
+// Modify AiSecurity struct
+#[derive(Debug, Clone)]
 pub struct AiSecurity {
-    pub config: Arc<HashMap<String, AiSecurityConfig>>,
-    // 可以添加缓存来存储请求计数器等
+    pub config: AiSecurityConfig, // Store config directly
+    // Keep rate_limits map as it's runtime state
     pub rate_limits: dashmap::DashMap<String, Vec<std::time::Instant>>,
 }
 
 impl AiSecurity {
+    // Update new to use default config
     pub fn new() -> Self {
         Self {
-            config: Arc::new(HashMap::new()),
+            config: AiSecurityConfig::default(),
             rate_limits: dashmap::DashMap::new(),
+        }
+    }
+    
+    // Add constructor that takes config
+    pub fn with_config(config: AiSecurityConfig) -> Self {
+        Self { 
+            config,
+            rate_limits: dashmap::DashMap::new(), // Initialize fresh rate limits map
         }
     }
 
@@ -227,126 +236,6 @@ impl AiSecurity {
         entry.push(now);
         false
     }
-
-    // 安全检查的主要处理逻辑
-    async fn process_security_checks(&self, session: &mut Session, config_name: &str, provider: Option<&str>) -> Result<Option<(StatusCode, String)>> {
-        let configs = self.config.clone();
-        
-        if let Some(security_config) = configs.get(config_name) {
-            // 确保请求包含JSON正文
-            if let Some(content_type) = session.req_header().headers.get("content-type") {
-                if !content_type.to_str().unwrap_or("").contains("application/json") {
-                    return Ok(None);
-                }
-            } else {
-                return Ok(None); // 没有Content-Type，跳过
-            }
-
-            // 在Pingora当前API中，我们无法直接读取请求体
-            // 这里需要通过其他方式获取请求体
-            // 在实际实现中，这部分需要根据Pingora的API进行适配
-            let body_bytes = Bytes::from("{\"messages\":[{\"role\":\"user\",\"content\":\"Tell me about AI\"}]}");
-            
-            // 解析JSON请求体
-            let body_str = String::from_utf8_lossy(&body_bytes);
-            let json_body: Value = match serde_json::from_str(&body_str) {
-                Ok(val) => val,
-                Err(e) => {
-                    error!("Failed to parse request body as JSON: {}", e);
-                    return Ok(None);
-                }
-            };
-
-            // 应用安全策略
-            for policy in &security_config.policies {
-                // 检查是否适用于当前提供商
-                if let Some(p) = &policy.provider {
-                    if let Some(current_provider) = provider {
-                        if !current_provider.contains(p) {
-                            continue;
-                        }
-                    }
-                }
-
-                // 根据策略类型执行不同的检查
-                let violation = match policy.policy_type {
-                    SecurityPolicyType::PromptInjection => {
-                        if let Some(patterns) = &policy.patterns {
-                            self.check_prompt_injection(&json_body, patterns)
-                        } else {
-                            false
-                        }
-                    },
-                    SecurityPolicyType::SensitiveInfo => {
-                        if let Some(patterns) = &policy.patterns {
-                            self.check_sensitive_info(&json_body, patterns)
-                        } else {
-                            false
-                        }
-                    },
-                    SecurityPolicyType::TokenLimit => {
-                        if let Some(max_tokens) = policy.max_tokens {
-                            self.check_token_limit(&json_body, max_tokens)
-                        } else {
-                            false
-                        }
-                    },
-                    SecurityPolicyType::RateLimit => {
-                        if let Some(max_requests) = policy.max_requests {
-                            if let Some(time_window) = policy.time_window {
-                                // 使用一个唯一键，例如IP地址或API密钥
-                                let ip = "127.0.0.1"; // 在实际中，应该获取真实IP
-                                let user_key = session.req_header().headers.get("x-api-key")
-                                    .and_then(|k| k.to_str().ok())
-                                    .unwrap_or("");
-                                let key = format!("{}:{}", ip, user_key);
-                                
-                                self.check_rate_limit(&key, max_requests, time_window)
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    },
-                    _ => false,
-                };
-
-                // 如果检测到违规，根据设定的操作处理
-                if violation {
-                    match policy.action {
-                        SecurityAction::Block => {
-                            let message = match policy.policy_type {
-                                SecurityPolicyType::PromptInjection => "Potential prompt injection detected".to_string(),
-                                SecurityPolicyType::SensitiveInfo => "Sensitive information detected".to_string(),
-                                SecurityPolicyType::TokenLimit => "Token limit exceeded".to_string(),
-                                SecurityPolicyType::RateLimit => "Rate limit exceeded".to_string(),
-                                _ => "Security policy violation".to_string(),
-                            };
-                            
-                            return Ok(Some((StatusCode::BAD_REQUEST, message)));
-                        },
-                        SecurityAction::Log => {
-                            info!(
-                                policy_type = ?policy.policy_type,
-                                "Security policy violation logged but not blocked"
-                            );
-                        },
-                        SecurityAction::Sanitize => {
-                            // 实际应用中，这里会尝试清理请求中的问题
-                            // 但由于Pingora API限制，我们当前不实现这部分功能
-                            warn!("Sanitize action is not implemented");
-                        },
-                    }
-                }
-            }
-            
-            // 在实际实现中，如果我们修改了请求体，需要把修改后的请求体写回
-            // 但由于当前Pingora API限制，这里只是示意
-        }
-        
-        Ok(None)
-    }
 }
 
 // Add new Plugin trait implementation structure
@@ -358,11 +247,128 @@ impl Plugin for AiSecurity {
 
     async fn handle_request(
         &self,
-        _step: PluginStep,
-        _session: &mut Session,
-        _ctx: &mut RouterContext,
+        step: PluginStep,
+        session: &mut Session,
+        ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
-        // Logic to be implemented here, especially for Request step
+        // Security checks run early in the request phase
+        if step != PluginStep::Request {
+            return Ok((false, None));
+        }
+
+        // Get provider name from context if available
+        let provider = ctx.plugins_data
+            .get("llm_provider")
+            .and_then(|v| v.as_str());
+            
+        // --- Body Access Assumption --- 
+        let Some(content_type) = session.req_header().headers.get("content-type") else {
+            debug!("Skipping AI security checks: No Content-Type header");
+            return Ok((false, None));
+        };
+        if !content_type.to_str().unwrap_or("").contains("application/json") {
+            debug!("Skipping AI security checks: Content-Type is not application/json");
+            return Ok((false, None));
+        }
+
+        // Placeholder/Dummy body
+        let body_bytes = Bytes::from("{\"messages\":[{\"role\":\"user\",\"content\":\"Hello from dummy body\"}]}");
+        warn!("AiSecurity: Using dummy request body due to limitations in accessing real body.");
+        // --- End Body Access Assumption ---
+        
+        let body_str = String::from_utf8_lossy(&body_bytes);
+        let json_body: Value = match serde_json::from_str(&body_str) {
+            Ok(val) => val,
+            Err(e) => {
+                error!("AiSecurity: Failed to parse request body as JSON: {}", e);
+                // Return a blocking response if body parsing fails for security reasons
+                let response = HttpResponse {
+                     status_code: StatusCode::BAD_REQUEST,
+                     headers: Default::default(),
+                     body: Bytes::from("{\"error\":\"Invalid JSON body for security check\"}"),
+                };
+                return Ok((true, Some(response)));
+            }
+        };
+
+        // Apply security policies from self.config
+        for policy in &self.config.policies {
+            // Check provider applicability
+            if let Some(p) = &policy.provider {
+                if let Some(current_provider) = provider {
+                    if !current_provider.contains(p) {
+                        continue; // Skip policy if provider doesn't match
+                    }
+                }
+            }
+
+            // Evaluate the policy
+            let violation = match policy.policy_type {
+                SecurityPolicyType::PromptInjection => 
+                    policy.patterns.as_ref().map_or(false, |p| self.check_prompt_injection(&json_body, p)),
+                SecurityPolicyType::SensitiveInfo => 
+                    policy.patterns.as_ref().map_or(false, |p| self.check_sensitive_info(&json_body, p)),
+                SecurityPolicyType::TokenLimit => 
+                    policy.max_tokens.map_or(false, |mt| self.check_token_limit(&json_body, mt)),
+                SecurityPolicyType::RateLimit => 
+                    policy.max_requests.zip(policy.time_window).map_or(false, |(mr, tw)| {
+                         // Generate a key for rate limiting (e.g., IP or API Key)
+                         // Using a placeholder IP for now
+                         let ip = session.client_addr().map(|addr| addr.ip().to_string()).unwrap_or_else(|| "unknown_ip".to_string());
+                         let user_key = session.req_header().headers.get("x-api-key")
+                             .and_then(|k| k.to_str().ok())
+                             .unwrap_or(""); // Or retrieve from ctx if stored by auth plugin
+                         let key = format!("{}:{}", ip, user_key); 
+                         self.check_rate_limit(&key, mr, tw)
+                     }),
+                SecurityPolicyType::ContentFilter => {
+                    // Placeholder: Implement content filtering logic (e.g., using external API or rules)
+                    false
+                }
+                SecurityPolicyType::Custom => {
+                    // Placeholder: Implement custom policy logic
+                    false
+                }
+            };
+
+            // Handle violation based on action
+            if violation {
+                match policy.action {
+                    SecurityAction::Block => {
+                        let message = match policy.policy_type {
+                            SecurityPolicyType::PromptInjection => "Potential prompt injection detected".to_string(),
+                            SecurityPolicyType::SensitiveInfo => "Sensitive information detected".to_string(),
+                            SecurityPolicyType::TokenLimit => "Token limit exceeded".to_string(),
+                            SecurityPolicyType::RateLimit => "Rate limit exceeded".to_string(),
+                            SecurityPolicyType::ContentFilter => "Content filter violation".to_string(),
+                            SecurityPolicyType::Custom => "Custom security policy violation".to_string(),
+                        };
+                        warn!(action = "Block", policy = ?policy.policy_type, message = message, "Security policy violated");
+                        
+                        // Construct and return blocking response
+                        let response_body = format!("{{\"error\":\"{}\"}}", message);
+                        let response = HttpResponse {
+                            status_code: StatusCode::BAD_REQUEST, // Or FORBIDDEN (403)
+                            headers: [(http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"))].into_iter().collect(),
+                            body: Bytes::from(response_body),
+                        };
+                        return Ok((true, Some(response))); // Block request
+                    },
+                    SecurityAction::Log => {
+                        info!(action = "Log", policy = ?policy.policy_type, "Security policy violation logged");
+                        // Continue processing
+                    },
+                    SecurityAction::Sanitize => {
+                        warn!(action = "Sanitize", policy = ?policy.policy_type, "Sanitize action is not implemented, logging only.");
+                        // Placeholder for sanitize logic. Currently just logs.
+                        // If implemented, would modify json_body and need to handle body update.
+                        // Since we can't modify body reliably yet, just log.
+                    },
+                }
+            }
+        }
+
+        // If no blocking violation occurred
         Ok((false, None))
     }
 
@@ -385,14 +391,12 @@ impl Plugin for AiSecurity {
     }
 }
 
-// 在静态注册表中注册插件
-pub static AI_SECURITY: Lazy<AiSecurity> = Lazy::new(AiSecurity::new);
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-    
+    use std::time::Duration; // For rate limit test
+
     #[test]
     fn test_security_policy_type_from_str() {
         assert!(matches!(SecurityPolicyType::from("prompt_injection"), SecurityPolicyType::PromptInjection));
@@ -450,4 +454,53 @@ mod tests {
         // 不应该超出2000 token的限制
         assert!(!security.check_token_limit(&openai_json, 2000));
     }
+    
+    // Add test for rate limiting logic
+    #[test]
+    fn test_check_rate_limit() {
+        let security = AiSecurity::new();
+        let key = "test_user:127.0.0.1";
+        let max_requests = 3;
+        let time_window = 10; // seconds
+        
+        // First 3 requests should pass
+        assert!(!security.check_rate_limit(key, max_requests, time_window));
+        assert!(!security.check_rate_limit(key, max_requests, time_window));
+        assert!(!security.check_rate_limit(key, max_requests, time_window));
+        
+        // 4th request should fail (be rate limited)
+        assert!(security.check_rate_limit(key, max_requests, time_window));
+        
+        // Wait for window to expire (add a buffer)
+        std::thread::sleep(Duration::from_secs(time_window + 1));
+        
+        // Request after window should pass
+        assert!(!security.check_rate_limit(key, max_requests, time_window));
+    }
+    
+    // Add test for plugin creation
+    #[test]
+    fn test_plugin_creation_with_config() {
+        let config = AiSecurityConfig {
+            policies: vec![
+                SecurityPolicy {
+                    policy_type: SecurityPolicyType::TokenLimit,
+                    provider: None,
+                    action: SecurityAction::Block,
+                    patterns: None,
+                    threshold: None,
+                    max_tokens: Some(1000),
+                    max_requests: None,
+                    time_window: None,
+                }
+            ]
+        };
+        
+        let plugin = AiSecurity::with_config(config.clone());
+        assert_eq!(plugin.config.policies.len(), 1);
+        assert!(matches!(plugin.config.policies[0].policy_type, SecurityPolicyType::TokenLimit));
+        assert_eq!(plugin.rate_limits.len(), 0);
+    }
+
+    // NOTE: Full handle_request testing is limited by body access assumption.
 } 

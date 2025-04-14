@@ -10,8 +10,11 @@ use pingora::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{info, warn, debug, error};
 use bytes;
+
+use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::proxy_server::HttpResponse;
 
 use crate::{
     config::RoutePlugin,
@@ -19,7 +22,7 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VectorDbConfig {
     pub provider: VectorDbProvider,
     pub endpoint: String,
@@ -30,8 +33,9 @@ pub struct VectorDbConfig {
     pub search_top_k: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum VectorDbProvider {
+    #[default]
     Pinecone,
     Qdrant,
     Weaviate,
@@ -58,67 +62,60 @@ trait VectorDbClient: Send + Sync {
     async fn delete(&self, ids: Vec<String>) -> Result<()>;
 }
 
+#[derive(Debug, Clone)]
 pub struct VectorDb {
-    config: Arc<HashMap<String, VectorDbConfig>>,
+    config: VectorDbConfig,
     clients: Arc<Mutex<HashMap<String, Box<dyn VectorDbClient>>>>,
 }
 
 impl VectorDb {
     pub fn new() -> Self {
         Self {
-            config: Arc::new(HashMap::new()),
+            config: VectorDbConfig::default(),
             clients: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    async fn get_client(&self, config_name: &str) -> Result<Box<dyn VectorDbClient>> {
-        let clients = self.clients.lock().await;
-        
-        if let Some(client) = clients.get(config_name) {
-            let config = self.config.get(config_name)
-                .ok_or_else(|| anyhow!("Vector DB config not found: {}", config_name))?;
-            
-            return match config.provider {
-                VectorDbProvider::Pinecone => Ok(Box::new(PineconeClient::new(config.clone()))),
-                VectorDbProvider::Qdrant => Ok(Box::new(QdrantClient::new(config.clone()))),
-                VectorDbProvider::Weaviate => Ok(Box::new(WeaviateClient::new(config.clone()))),
-                VectorDbProvider::Milvus => Ok(Box::new(MilvusClient::new(config.clone()))),
-                VectorDbProvider::Custom(_) => Ok(Box::new(CustomClient::new(config.clone()))),
-            };
+    pub fn with_config(config: VectorDbConfig) -> Self {
+        Self {
+            config,
+            clients: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    async fn get_client(&self) -> Result<Box<dyn VectorDbClient>> {
+        let client_key = format!("{:?}_{}", self.config.provider, self.config.collection);
+        let mut clients = self.clients.lock().await;
         
-        let config = self.config.get(config_name)
-            .ok_or_else(|| anyhow!("Vector DB config not found: {}", config_name))?;
-            
-        let client: Box<dyn VectorDbClient> = match config.provider {
-            VectorDbProvider::Pinecone => Box::new(PineconeClient::new(config.clone())),
-            VectorDbProvider::Qdrant => Box::new(QdrantClient::new(config.clone())),
-            VectorDbProvider::Weaviate => Box::new(WeaviateClient::new(config.clone())),
-            VectorDbProvider::Milvus => Box::new(MilvusClient::new(config.clone())),
-            VectorDbProvider::Custom(_) => Box::new(CustomClient::new(config.clone())),
+        if let Some(client) = clients.get(&client_key) {
+            // Need a way to return a clone or handle the lifetime
+            // For simplicity now, we recreate if not found, but caching is ideal
+            // To return from cache directly, client needs to impl Clone or we store Arc<Client>
+            // Let's recreate for now to avoid Clone requirement on trait object
+            // return Ok(client.clone()); // This won't work directly
+        }
+
+        let client: Box<dyn VectorDbClient> = match &self.config.provider {
+            VectorDbProvider::Pinecone => Box::new(PineconeClient::new(self.config.clone())),
+            VectorDbProvider::Qdrant => Box::new(QdrantClient::new(self.config.clone())),
+            VectorDbProvider::Weaviate => Box::new(WeaviateClient::new(self.config.clone())),
+            VectorDbProvider::Milvus => Box::new(MilvusClient::new(self.config.clone())),
+            VectorDbProvider::Custom(_) => Box::new(CustomClient::new(self.config.clone())),
         };
         
-        drop(clients);
-        
-        let mut clients = self.clients.lock().await;
-        clients.insert(config_name.to_string(), match config.provider {
-            VectorDbProvider::Pinecone => Box::new(PineconeClient::new(config.clone())),
-            VectorDbProvider::Qdrant => Box::new(QdrantClient::new(config.clone())),
-            VectorDbProvider::Weaviate => Box::new(WeaviateClient::new(config.clone())),
-            VectorDbProvider::Milvus => Box::new(MilvusClient::new(config.clone())),
-            VectorDbProvider::Custom(_) => Box::new(CustomClient::new(config.clone())),
-        });
-        
+        // Optional: Cache the client if desired for future calls within the same plugin instance lifetime
+        // clients.insert(client_key.clone(), client.clone()); // Need client to be Clone or store Arc
+
         Ok(client)
     }
 
     async fn process_request(&self, session: &mut Session, config_name: &str) -> Result<()> {
-        let client = self.get_client(config_name).await?;
+        let client = self.get_client().await?;
         
         let vectors = self.extract_vectors(session).await?;
         let metadata = self.extract_metadata(session).await?;
 
-        let config = self.config.get(config_name).unwrap();
+        let config = self.config.clone();
         let batch_size = config.batch_size.unwrap_or(100);
         for chunk in vectors.chunks(batch_size) {
             let metadata_chunk = metadata[chunk.len()..].to_vec();
@@ -129,8 +126,8 @@ impl VectorDb {
     }
 
     async fn process_response(&self, session: &mut Session, config_name: &str) -> Result<()> {
-        let client = self.get_client(config_name).await?;
-        let config = self.config.get(config_name).unwrap();
+        let client = self.get_client().await?;
+        let config = self.config.clone();
         
         let query_vector = self.extract_query_vector(session).await?;
         
@@ -192,54 +189,92 @@ impl VectorDb {
     }
 }
 
-/* // Commented out outdated implementation
 #[async_trait]
-impl MiddlewarePlugin for VectorDb {
-    async fn request_filter(
+impl Plugin for VectorDb {
+    fn name(&self) -> &'static str {
+        "vector_db"
+    }
+
+    async fn handle_request(
         &self,
+        step: PluginStep,
         session: &mut Session,
-        state: &mut RouterContext,
-        config: &RoutePlugin,
+        _ctx: &mut RouterContext,
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        if step == PluginStep::Request {
+            if let Some(content_type) = session.req_header().headers.get("content-type") {
+                if content_type.to_str().unwrap_or("").contains("application/json") {
+                    match self.get_client().await {
+                        Ok(client) => {
+                            let vectors = self.extract_vectors(session).await?;
+                            let metadata = self.extract_metadata(session).await?;
+                            let batch_size = self.config.batch_size.unwrap_or(100);
+                            
+                            info!(provider=?self.config.provider, collection=%self.config.collection, batch_size=batch_size, num_vectors=vectors.len(), "VectorDb: Attempting upsert (using dummy data).");
+
+                            for (vector_chunk, metadata_chunk) in vectors.chunks(batch_size).zip(metadata.chunks(batch_size)) {
+                                match client.upsert(vector_chunk.to_vec(), metadata_chunk.to_vec()).await {
+                                     Ok(_) => debug!("VectorDb: Batch upsert successful for {} vectors.", vector_chunk.len()),
+                                     Err(e) => error!("VectorDb: Batch upsert failed: {}", e),
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("VectorDb: Failed to get client: {}", e);
+                        }
+                    }
+                } else {
+                    debug!("VectorDb: Skipping request processing, not JSON.");
+                }
+            } else {
+                 debug!("VectorDb: Skipping request processing, no Content-Type.");
+            }
+        }
+        Ok((false, None))
+    }
+
+    async fn handle_response(
+        &self,
+        step: PluginStep,
+        session: &mut Session,
+        _ctx: &mut RouterContext,
+        upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
-        let config_data = config.config.as_ref().ok_or_else(|| anyhow!("Vector DB plugin requires configuration"))?;
-        let config_name = get_required_config(config_data, "config_name").unwrap_or_else(|_| "default".to_string());
-        
-        self.process_request(session, &config_name).await?;
+        if step == PluginStep::Response {
+            match self.get_client().await {
+                 Ok(client) => {
+                     let query_vector = self.extract_query_vector(session).await?;
+                     let top_k = self.config.search_top_k.unwrap_or(10);
+                     
+                     info!(provider=?self.config.provider, collection=%self.config.collection, top_k=top_k, "VectorDb: Attempting search (using dummy data).");
+
+                     match client.search(query_vector, top_k).await {
+                         Ok(results) => {
+                            info!(num_results = results.len(), "VectorDb: Search successful.");
+                            upstream_response.insert_header("X-VectorDB-Search-Performed", "true")?;
+                            return Ok(true);
+                         }
+                         Err(e) => {
+                             error!("VectorDb: Search failed: {}", e);
+                         }
+                     }
+                 }
+                 Err(e) => {
+                     error!("VectorDb: Failed to get client for search: {}", e);
+                 }
+            }
+        }
         Ok(false)
     }
 
-    async fn upstream_request_filter(
-        &self,
-        _session: &mut Session,
-        _upstream_request: &mut RequestHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
+    async fn start(&mut self) -> Result<(), PluginError> {
         Ok(())
     }
 
-    async fn response_filter(
-        &self,
-        session: &mut Session,
-        state: &mut RouterContext,
-        config: &RoutePlugin,
-    ) -> Result<bool> {
-        let config_data = config.config.as_ref().ok_or_else(|| anyhow!("Vector DB plugin requires configuration"))?;
-        let config_name = get_required_config(config_data, "config_name").unwrap_or_else(|_| "default".to_string());
-        
-        self.process_response(session, &config_name).await?;
-        Ok(false)
-    }
-
-    fn upstream_response_filter(
-        &self,
-        _session: &mut Session,
-        _upstream_response: &mut ResponseHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
+    async fn stop(&mut self) -> Result<(), PluginError> {
         Ok(())
     }
 }
-*/
 
 struct PineconeClient {
     config: VectorDbConfig,
@@ -381,4 +416,83 @@ impl VectorDbClient for CustomClient {
     }
 }
 
-pub static VECTOR_DB: Lazy<VectorDb> = Lazy::new(VectorDb::new); 
+// Remove static instance
+// pub static VECTOR_DB: Lazy<VectorDb> = Lazy::new(VectorDb::new);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::core::PluginStep;
+    use crate::proxy_server::https_proxy::RouterContext;
+    use pingora::proxy::Session;
+    use http::HeaderValue;
+    use std::collections::HashMap;
+    use serde_json::Value;
+    
+    // Helper to create a basic RouterContext
+    fn create_test_context() -> RouterContext {
+        RouterContext {
+            host: "test.example.com".to_string(),
+            route_container: Default::default(),
+            upstream: Default::default(),
+            extensions: HashMap::new(),
+            is_websocket: false,
+            timings: Default::default(),
+            upstream_response: None,
+            plugins_data: HashMap::new(),
+            request_id: String::new(),
+        }
+    }
+    
+    #[test]
+    fn test_provider_from_str() {
+        assert_eq!(VectorDbProvider::from_str("pinecone"), Some(VectorDbProvider::Pinecone));
+        assert_eq!(VectorDbProvider::from_str("qdrant"), Some(VectorDbProvider::Qdrant));
+        assert_eq!(VectorDbProvider::from_str("WEAVIATE"), Some(VectorDbProvider::Weaviate));
+        assert_eq!(VectorDbProvider::from_str("other"), Some(VectorDbProvider::Custom("other".to_string())));
+    }
+    
+    #[test]
+    fn test_plugin_creation_with_config() {
+        let config = VectorDbConfig {
+            provider: VectorDbProvider::Pinecone,
+            endpoint: "test-endpoint".to_string(),
+            collection: "test-collection".to_string(),
+            dimensions: 1536,
+            ..Default::default()
+        };
+        
+        let plugin = VectorDb::with_config(config.clone());
+        assert_eq!(plugin.config.provider, VectorDbProvider::Pinecone);
+        assert_eq!(plugin.config.collection, "test-collection");
+        assert_eq!(plugin.clients.lock().unwrap().len(), 0); // Client map starts empty
+    }
+    
+    #[tokio::test]
+    async fn test_handle_response_adds_header() {
+        let config = VectorDbConfig {
+            provider: VectorDbProvider::Pinecone,
+            endpoint: "test-endpoint".to_string(),
+            collection: "test-collection".to_string(),
+            dimensions: 1536,
+             search_top_k: Some(5),
+            ..Default::default()
+        };
+        let plugin = VectorDb::with_config(config);
+        let mut session = Session::new_dummy();
+        let mut ctx = create_test_context();
+        let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
+        
+        // Simulate the response step
+        let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
+        assert!(result.is_ok());
+        // This should be true because the search (even dummy) adds a header
+        assert!(result.unwrap()); 
+        
+        assert!(upstream_response.headers.get("X-VectorDB-Search-Performed").is_some());
+        assert_eq!(upstream_response.headers.get("X-VectorDB-Search-Performed").unwrap().to_str().unwrap(), "true");
+    }
+    
+    // NOTE: Testing the core request/response body interactions requires 
+    // significant changes to the core plugin execution model or framework capabilities.
+} 

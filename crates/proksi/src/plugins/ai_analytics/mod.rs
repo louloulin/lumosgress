@@ -3,7 +3,7 @@ use anyhow::Result;
 use pingora::proxy::Session;
 use serde_json::Value;
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, error, info, warn};
 use chrono::{DateTime, Utc, Duration};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -19,6 +19,10 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
+// Import new Plugin trait and related types
+use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::proxy_server::HttpResponse;
+
 mod anomaly_detection;
 
 pub use anomaly_detection::{
@@ -27,7 +31,7 @@ pub use anomaly_detection::{
 };
 use anomaly_detection::AnomalyDetector;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AiAnalyticsConfig {
     pub metrics_enabled: bool,
     pub storage_type: AnalyticsStorageType,
@@ -39,8 +43,9 @@ pub struct AiAnalyticsConfig {
     pub anomaly_detection: Option<AnomalyDetectionConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum AnalyticsStorageType {
+    #[default]
     InMemory,
     Redis,
     Postgres,
@@ -75,12 +80,13 @@ pub struct AnalyticsMetric {
     pub tags: HashMap<String, String>,
 }
 
+#[derive(Debug)]
 pub struct AiAnalytics {
-    config: Arc<HashMap<String, AiAnalyticsConfig>>,
-    storage: HashMap<String, Arc<Mutex<dyn AnalyticsStorage>>>,
+    config: AiAnalyticsConfig,
+    storage: Option<Arc<Mutex<dyn AnalyticsStorage>>>,
     metrics: Arc<Mutex<HashMap<String, Vec<AnalyticsMetric>>>>,
-    anomaly_detectors: HashMap<String, Arc<Mutex<AnomalyDetector>>>,
-    last_prune_time: DateTime<Utc>,
+    anomaly_detector: Option<Arc<Mutex<AnomalyDetector>>>,
+    last_prune_time: Arc<Mutex<DateTime<Utc>>>,
 }
 
 #[async_trait]
@@ -102,137 +108,68 @@ pub enum AggregationType {
 impl AiAnalytics {
     pub fn new() -> Self {
         Self {
-            config: Arc::new(HashMap::new()),
-            storage: HashMap::new(),
+            config: AiAnalyticsConfig::default(),
+            storage: None,
             metrics: Arc::new(Mutex::new(HashMap::new())),
-            anomaly_detectors: HashMap::new(),
-            last_prune_time: Utc::now(),
+            anomaly_detector: None,
+            last_prune_time: Arc::new(Mutex::new(Utc::now())),
         }
     }
 
-    fn get_config(&self, config_name: &str) -> Option<&AiAnalyticsConfig> {
-        self.config.get(config_name)
+    pub fn with_config(config: AiAnalyticsConfig) -> Self {
+        Self {
+            config,
+            storage: None,
+            metrics: Arc::new(Mutex::new(HashMap::new())),
+            anomaly_detector: None,
+            last_prune_time: Arc::new(Mutex::new(Utc::now())),
+        }
     }
 
-    async fn initialize_storage(&mut self, config_name: &str, config: &AiAnalyticsConfig) -> Result<()> {
-        let storage: Arc<Mutex<dyn AnalyticsStorage>> = match config.storage_type {
+    async fn initialize_storage_and_detector(&mut self) -> Result<()> {
+        let config = &self.config;
+        
+        let storage_instance: Arc<Mutex<dyn AnalyticsStorage>> = match config.storage_type {
             AnalyticsStorageType::InMemory => Arc::new(Mutex::new(InMemoryStorage::new())),
             AnalyticsStorageType::Redis => Arc::new(Mutex::new(RedisStorage::new(config))),
             AnalyticsStorageType::Postgres => Arc::new(Mutex::new(PostgresStorage::new(config))),
             AnalyticsStorageType::Custom(_) => Arc::new(Mutex::new(CustomStorage::new(config))),
         };
-
-        self.storage.insert(config_name.to_string(), storage);
+        self.storage = Some(storage_instance);
         
-        // Initialize anomaly detector if configured
         if let Some(anomaly_config) = &config.anomaly_detection {
             let detector = AnomalyDetector::new(anomaly_config.clone());
-            self.anomaly_detectors.insert(config_name.to_string(), Arc::new(Mutex::new(detector)));
+            self.anomaly_detector = Some(Arc::new(Mutex::new(detector)));
         }
         
         Ok(())
     }
 
-    async fn process_request(&self, session: &mut Session, config: &AiAnalyticsConfig) -> Result<()> {
-        if !config.metrics_enabled {
-            return Ok(());
-        }
-
-        // Skip sampling if needed
-        if rand::random::<f64>() > config.sampling_rate {
-            return Ok(());
-        }
-
-        // Collect request metrics
-        let metrics = self.collect_request_metrics(session).await?;
-        
-        // Store metrics if we have any
-        if !metrics.is_empty() {
-            let mut metrics_map = self.metrics.lock().await;
-            for metric in metrics {
-                metrics_map.entry(metric.metric_name.clone())
-                    .or_insert_with(Vec::new)
-                    .push(metric);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn process_response(&self, session: &mut Session, config: &AiAnalyticsConfig, config_name: &str) -> Result<()> {
-        if !config.metrics_enabled {
-            return Ok(());
-        }
-
-        // Skip sampling if needed
-        if rand::random::<f64>() > config.sampling_rate {
-            return Ok(());
-        }
-
-        // Collect response metrics
-        let metrics = self.collect_response_metrics(session).await?;
-        
-        // Store metrics
-        if !metrics.is_empty() {
-            if let Some(storage) = self.storage.get(config_name) {
-                let mut storage_lock = storage.lock().await;
-                for metric in metrics.clone() {
-                    storage_lock.store_metric(metric).await?;
-                }
-            }
-            
-            // Feed metrics to anomaly detector if enabled
-            if let Some(detector) = self.anomaly_detectors.get(config_name) {
-                let mut detector_lock = detector.lock().await;
-                for metric in &metrics {
-                    detector_lock.add_metric(metric.clone());
-                }
-                
-                // Run anomaly detection
-                let anomalies = detector_lock.detect_anomalies();
-                if !anomalies.is_empty() {
-                    info!("Detected {} anomalies in metrics", anomalies.len());
-                }
-            }
-        }
-
-        // Check alert thresholds
-        self.check_alerts(config).await?;
-        
-        // Periodically prune metric history
-        if Utc::now() - self.last_prune_time > Duration::hours(1) {
-            self.prune_metric_history(config_name).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn collect_request_metrics(&self, session: &Session) -> Result<Vec<AnalyticsMetric>> {
+    async fn collect_request_metrics(&self, session: &Session, ctx: &RouterContext) -> Result<Vec<AnalyticsMetric>> {
         let mut metrics = Vec::new();
         let timestamp = Utc::now();
         let mut tags = HashMap::new();
 
-        // Add basic request tags
-        if let Some(host) = session.req_header().headers.get("host").and_then(|h| h.to_str().ok()) {
-            tags.insert("host".to_string(), host.to_string());
+        // Basic request tags
+        tags.insert("host".to_string(), ctx.host.clone());
+        if let Some(path) = session.req_header().uri.path_and_query() {
+             tags.insert("path".to_string(), path.path().to_string());
         }
-        
-        let path = session.req_header().uri.path();
-        tags.insert("path".to_string(), path.to_string());
-        
-        let method = session.req_header().method.as_str();
-        tags.insert("method".to_string(), method.to_string());
+        tags.insert("method".to_string(), session.req_header().method.as_str().to_string());
+        tags.insert("request_id".to_string(), ctx.request_id.clone()); // Use request_id from ctx
 
-        // Collect request latency - this would need a different approach since request_time isn't available
-        // We'll just use a placeholder for now
+        // Request Latency - Placeholder
+        // NOTE: Cannot access private ctx.timings.request_filter_start. Using 0.0.
+        // Accurate timing requires changes to RouterTimings or context.
+        let req_latency = 0.0; 
         metrics.push(AnalyticsMetric {
             timestamp,
-            metric_name: "request_latency".to_string(),
-            value: 0.0, // Placeholder, actual measurement would need different approach
+            metric_name: "request.latency".to_string(),
+            value: req_latency,
             tags: tags.clone(),
         });
 
-        // Collect request size - use content length from header or 0 if not available
+        // Request size
         let request_size = session.req_header().headers
             .get("content-length")
             .and_then(|v| v.to_str().ok())
@@ -241,91 +178,132 @@ impl AiAnalytics {
             
         metrics.push(AnalyticsMetric {
             timestamp,
-            metric_name: "request_size".to_string(),
+            metric_name: "request.size".to_string(),
             value: request_size,
             tags: tags.clone(),
         });
 
-        // Collect LLM provider metrics if available
-        if let Some(provider) = session.req_header().headers.get("x-llm-provider") {
-            let provider_str = provider.to_str().unwrap_or("unknown");
-            let mut provider_tags = tags.clone();
-            provider_tags.insert("provider".to_string(), provider_str.to_string());
-            
-            metrics.push(AnalyticsMetric {
-                timestamp,
-                metric_name: "llm_provider_requests".to_string(),
-                value: 1.0,
-                tags: provider_tags,
-            });
+        // LLM provider metrics (from RouterContext if LlmRouter ran)
+        if let Some(provider_val) = ctx.plugins_data.get("llm_provider") {
+             if let Some(provider_str) = provider_val.as_str() {
+                let mut provider_tags = tags.clone();
+                provider_tags.insert("provider".to_string(), provider_str.to_string());
+                
+                metrics.push(AnalyticsMetric {
+                    timestamp,
+                    metric_name: "llm.provider.requests".to_string(),
+                    value: 1.0,
+                    tags: provider_tags,
+                });
+            }
         }
-
-        // Collect model info if available
-        if let Some(model) = session.req_header().headers.get("x-llm-model") {
-            let model_str = model.to_str().unwrap_or("unknown");
-            let mut model_tags = tags.clone();
-            model_tags.insert("model".to_string(), model_str.to_string());
-            
-            metrics.push(AnalyticsMetric {
-                timestamp,
-                metric_name: "llm_model_requests".to_string(),
-                value: 1.0,
-                tags: model_tags,
-            });
+        
+        // LLM model metrics (if available in context)
+        // This depends on other plugins potentially adding this info
+        if let Some(model_val) = ctx.plugins_data.get("llm_model") {
+            if let Some(model_str) = model_val.as_str() {
+                let mut model_tags = tags.clone();
+                model_tags.insert("model".to_string(), model_str.to_string());
+                
+                metrics.push(AnalyticsMetric {
+                    timestamp,
+                    metric_name: "llm.model.requests".to_string(),
+                    value: 1.0,
+                    tags: model_tags,
+                });
+            }
         }
 
         Ok(metrics)
     }
 
-    async fn collect_response_metrics(&self, session: &Session) -> Result<Vec<AnalyticsMetric>> {
+    async fn collect_response_metrics(&self, session: &Session, ctx: &RouterContext, upstream_response: &ResponseHeader) -> Result<Vec<AnalyticsMetric>> {
         let mut metrics = Vec::new();
         let timestamp = Utc::now();
         let mut tags = HashMap::new();
-
-        // Add basic response tags
-        if let Some(host) = session.req_header().headers.get("host").and_then(|h| h.to_str().ok()) {
-            tags.insert("host".to_string(), host.to_string());
+        
+        // Basic tags (reuse from request context or re-extract)
+        tags.insert("host".to_string(), ctx.host.clone());
+        tags.insert("request_id".to_string(), ctx.request_id.clone()); 
+        if let Some(provider_val) = ctx.plugins_data.get("llm_provider") {
+             if let Some(provider_str) = provider_val.as_str() {
+                tags.insert("provider".to_string(), provider_str.to_string());
+             }
         }
-        
-        let path = session.req_header().uri.path();
-        tags.insert("path".to_string(), path.to_string());
-        
-        let method = session.req_header().method.as_str();
-        tags.insert("method".to_string(), method.to_string());
+        if let Some(model_val) = ctx.plugins_data.get("llm_model") {
+            if let Some(model_str) = model_val.as_str() {
+                tags.insert("model".to_string(), model_str.to_string());
+            }
+        }
 
-        // Since there's no resp_header method, we'd need to access response header differently
-        // For now we'll just use placeholder metrics without status-specific logic
-        
-        // Collect response latency - this would need a different approach
+        // Response Latency - Placeholder
+        // NOTE: Cannot access private ctx.timings.request_filter_start. Using 0.0.
+        // Accurate timing requires changes to RouterTimings or context.
+        let total_latency = 0.0;
         metrics.push(AnalyticsMetric {
             timestamp,
-            metric_name: "response_latency".to_string(),
+            metric_name: "response.latency".to_string(),
+            value: total_latency,
+            tags: tags.clone(),
+        });
+
+        // Response Status Code
+        let status = upstream_response.status.as_u16();
+        tags.insert("status_code".to_string(), status.to_string());
+        metrics.push(AnalyticsMetric {
+            timestamp,
+            metric_name: "response.status".to_string(),
+            value: status as f64,
+            tags: tags.clone(),
+        });
+        
+        // Error count
+        if status >= 400 {
+            metrics.push(AnalyticsMetric {
+                timestamp,
+                metric_name: "response.errors".to_string(),
+                value: 1.0,
+                tags: tags.clone(),
+            });
+        }
+
+        // Response size
+        let response_size = upstream_response.headers
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+            
+        metrics.push(AnalyticsMetric {
+            timestamp,
+            metric_name: "response.size".to_string(),
+            value: response_size,
+            tags: tags.clone(),
+        });
+        
+        // Placeholder for Token Usage - needs body access/parsing
+        metrics.push(AnalyticsMetric {
+            timestamp,
+            metric_name: "llm.token_usage".to_string(),
             value: 0.0, // Placeholder
             tags: tags.clone(),
         });
 
-        // Collect response size - use placeholder for now
-        metrics.push(AnalyticsMetric {
-            timestamp,
-            metric_name: "response_size".to_string(),
-            value: 0.0,
-            tags: tags.clone(),
-        });
-
-        // We can't access status or response headers in this stub implementation
-        // In a real implementation, we would need to find the appropriate way
-        // to access response headers in pingora's Session structure
-
         Ok(metrics)
     }
 
-    async fn check_alerts(&self, config: &AiAnalyticsConfig) -> Result<()> {
+    async fn check_alerts(&self) -> Result<()> {
+        let config = &self.config;
+        if config.alert_thresholds.is_empty() {
+            return Ok(());
+        }
+        
         let now = Utc::now();
-        let start_time = now - chrono::Duration::minutes(5);
+        let start_time = now - chrono::Duration::minutes(5); // Example window
 
+        let metrics_map = self.metrics.lock().await;
         for (metric_name, threshold) in &config.alert_thresholds {
-            // Get metrics from the last 5 minutes
-            let metrics = self.metrics.lock().await
+            let metrics = metrics_map
                 .get(metric_name)
                 .map(|metrics| {
                     metrics.iter()
@@ -335,292 +313,169 @@ impl AiAnalytics {
                 })
                 .unwrap_or_default();
 
-            // Calculate average
             if !metrics.is_empty() {
                 let avg = metrics.iter().map(|m| m.value).sum::<f64>() / metrics.len() as f64;
-                
-                // Check if over threshold
                 if avg > *threshold {
                     warn!(
                         "Alert triggered for metric {}: value {} exceeds threshold {}",
                         metric_name, avg, threshold
                     );
+                    // TODO: Implement actual alerting mechanism (e.g., call webhook)
                 }
             }
         }
-
         Ok(())
     }
     
-    // Prune old metrics to prevent excessive memory usage
-    async fn prune_metric_history(&self, config_name: &str) -> Result<()> {
-        // Get retention policy from config
-        if let Some(config) = self.config.get(config_name) {
-            let retention_days = config.retention_days;
-            let cutoff = Utc::now() - Duration::days(retention_days as i64);
-            
-            // Prune in-memory metrics
-            let mut metrics = self.metrics.lock().await;
-            for values in metrics.values_mut() {
-                values.retain(|m| m.timestamp >= cutoff);
-            }
-            
-            // Prune anomaly detector history
-            if let Some(detector) = self.anomaly_detectors.get(config_name) {
-                let mut detector_lock = detector.lock().await;
-                detector_lock.prune_history(Duration::days(retention_days as i64));
-            }
+    async fn prune_metric_history(&self) -> Result<()> {
+        let config = &self.config;
+        let retention_days = config.retention_days;
+        let cutoff = Utc::now() - Duration::days(retention_days as i64);
+        
+        // Prune in-memory metrics cache
+        let mut metrics_cache = self.metrics.lock().await;
+        for values in metrics_cache.values_mut() {
+            values.retain(|m| m.timestamp >= cutoff);
         }
+        metrics_cache.retain(|_, v| !v.is_empty()); // Remove empty keys
+        drop(metrics_cache);
+        
+        // Prune anomaly detector history
+        if let Some(detector) = self.anomaly_detector.as_ref() {
+            let mut detector_lock = detector.lock().await;
+            detector_lock.prune_history(Duration::days(retention_days as i64));
+        }
+        
+        // Update last prune time
+        *self.last_prune_time.lock().await = Utc::now();
         
         Ok(())
     }
-
-    fn render_dashboard(&self, config: &AiAnalyticsConfig) -> String {
-        let html = format!(r#"
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Proksi AI Analytics Dashboard</title>
-                <style>
-                    body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; line-height: 1.6; }}
-                    .container {{ max-width: 1200px; margin: 0 auto; }}
-                    header {{ background: #f4f4f4; padding: 20px; margin-bottom: 20px; border-radius: 5px; }}
-                    h1, h2, h3 {{ color: #333; }}
-                    .metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; }}
-                    .metric-card {{ background: white; border: 1px solid #ddd; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-                    .metric-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; margin: 15px 0; }}
-                    .chart-container {{ height: 250px; margin-top: 20px; }}
-                    table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                    th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }}
-                    th {{ background-color: #f4f4f4; }}
-                    tr:hover {{ background-color: #f9f9f9; }}
-                    .alert {{ background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin-bottom: 10px; }}
-                    .alert-warning {{ background-color: #fff3cd; color: #856404; }}
-                    .alert-info {{ background-color: #d1ecf1; color: #0c5460; }}
-                </style>
-                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-            </head>
-            <body>
-                <div class="container">
-                    <header>
-                        <h1>Proksi AI Analytics Dashboard</h1>
-                        <p>Real-time metrics and analytics for AI gateway traffic</p>
-                    </header>
-                    
-                    <section id="alerts-section">
-                        <h2>Active Alerts</h2>
-                        <div id="alerts-container">
-                            <!-- Alerts will be inserted here -->
-                            <p id="no-alerts" class="alert-info">No active alerts at this time.</p>
-                        </div>
-                    </section>
-                    
-                    <section>
-                        <h2>Overview</h2>
-                        <div class="metrics-grid">
-                            <div class="metric-card">
-                                <h3>Request Count</h3>
-                                <div class="metric-value" id="request-count">Loading...</div>
-                                <div class="chart-container">
-                                    <canvas id="request-chart"></canvas>
-                                </div>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Response Time (ms)</h3>
-                                <div class="metric-value" id="response-time">Loading...</div>
-                                <div class="chart-container">
-                                    <canvas id="latency-chart"></canvas>
-                                </div>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Error Rate</h3>
-                                <div class="metric-value" id="error-rate">Loading...</div>
-                                <div class="chart-container">
-                                    <canvas id="error-chart"></canvas>
-                                </div>
-                            </div>
-                            <div class="metric-card">
-                                <h3>Token Usage</h3>
-                                <div class="metric-value" id="token-usage">Loading...</div>
-                                <div class="chart-container">
-                                    <canvas id="token-chart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-                    
-                    <section>
-                        <h2>LLM Provider Breakdown</h2>
-                        <div class="chart-container" style="height: 300px;">
-                            <canvas id="provider-chart"></canvas>
-                        </div>
-                    </section>
-                    
-                    <section>
-                        <h2>Anomaly Detection</h2>
-                        <div class="chart-container" style="height: 300px;">
-                            <canvas id="anomaly-chart"></canvas>
-                        </div>
-                        <div id="anomaly-list">
-                            <h3>Recent Anomalies</h3>
-                            <table id="anomalies-table">
-                                <thead>
-                                    <tr>
-                                        <th>Time</th>
-                                        <th>Metric</th>
-                                        <th>Value</th>
-                                        <th>Expected</th>
-                                        <th>Deviation</th>
-                                        <th>Severity</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr><td colspan="6">No anomalies detected</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-                    
-                    <section>
-                        <h2>Recent Requests</h2>
-                        <table id="recent-requests">
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Provider</th>
-                                    <th>Model</th>
-                                    <th>Latency (ms)</th>
-                                    <th>Tokens</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr><td colspan="6">Loading...</td></tr>
-                            </tbody>
-                        </table>
-                    </section>
-                </div>
-                
-                <script>
-                    // This would be replaced with actual data fetching and visualization code
-                    // For now, we're just showing the dashboard structure
-                    
-                    // Example data
-                    const requestData = {{
-                        labels: Array.from({{length: 24}}, (_, idx) => `${{idx}}:00`),
-                        values: Array.from({{length: 24}}, () => Math.floor(Math.random() * 100))
-                    }};
-                    
-                    // Initialize charts
-                    const requestChart = new Chart(
-                        document.getElementById('request-chart'),
-                        {{
-                            type: 'line',
-                            data: {{
-                                labels: requestData.labels,
-                                datasets: [{{
-                                    label: 'Requests',
-                                    data: requestData.values,
-                                    borderColor: 'rgb(75, 192, 192)',
-                                    tension: 0.1
-                                }}]
-                            }}
-                        }}
-                    );
-                    
-                    // Update metrics
-                    document.getElementById('request-count').textContent = 
-                        requestData.values.reduce((a, b) => a + b, 0);
-                    
-                    // Example anomaly chart
-                    const anomalyData = {{
-                        labels: Array.from({{length: 24}}, (_, idx) => `${{idx}}:00`),
-                        values: Array.from({{length: 24}}, () => Math.floor(Math.random() * 100)),
-                        anomalies: [3, 8, 15].map(idx => ({{
-                            x: `${{idx}}:00`,
-                            y: Math.floor(Math.random() * 100) + 50
-                        }}))
-                    }};
-                    
-                    new Chart(
-                        document.getElementById('anomaly-chart'),
-                        {{
-                            type: 'line',
-                            data: {{
-                                labels: anomalyData.labels,
-                                datasets: [
-                                    {{
-                                        label: 'Normal Values',
-                                        data: anomalyData.values,
-                                        borderColor: 'rgb(75, 192, 192)',
-                                        tension: 0.1
-                                    }},
-                                    {{
-                                        label: 'Anomalies',
-                                        data: anomalyData.anomalies,
-                                        backgroundColor: 'rgb(255, 99, 132)',
-                                        borderColor: 'rgb(255, 99, 132)',
-                                        pointRadius: 6,
-                                        pointStyle: 'circle',
-                                        showLine: false
-                                    }}
-                                ]
-                            }}
-                        }}
-                    );
-                    
-                    // Example alerts
-                    const exampleAlerts = [
-                        {{ 
-                            severity: 'critical',
-                            message: 'Response time exceeded threshold by 250%'
-                        }},
-                        {{ 
-                            severity: 'warning',
-                            message: 'Error rate increased by 150% in the last 5 minutes'
-                        }}
-                    ];
-                    
-                    if (exampleAlerts.length > 0) {{
-                        document.getElementById('no-alerts').style.display = 'none';
-                        const alertsContainer = document.getElementById('alerts-container');
-                        
-                        exampleAlerts.forEach(alert => {{
-                            const alertDiv = document.createElement('div');
-                            alertDiv.className = alert.severity === 'critical' ? 'alert' : 'alert alert-warning';
-                            alertDiv.textContent = alert.message;
-                            alertsContainer.appendChild(alertDiv);
-                        }});
-                    }}
-                    
-                    // Additional charts and metrics would be initialized similarly
-                </script>
-            </body>
-            </html>
-        "#);
-        
-        html
-    }
-
-    pub fn handle_dashboard_request(&self, config: &AiAnalyticsConfig) -> Option<String> {
-        if config.dashboard_enabled {
-            Some(self.render_dashboard(config))
-        } else {
-            None
-        }
-    }
 }
 
-/* // Commented out outdated implementation
 #[async_trait]
-impl MiddlewarePlugin for AiAnalytics {
-    // ... implementation ...
-}
-*/
+impl Plugin for AiAnalytics {
+    fn name(&self) -> &'static str {
+        "ai_analytics"
+    }
 
-// 实现各个存储后端
+    async fn handle_request(
+        &self,
+        step: PluginStep,
+        session: &mut Session,
+        ctx: &mut RouterContext,
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        if step != PluginStep::Request || !self.config.metrics_enabled {
+            return Ok((false, None));
+        }
+        // Sampling
+        if rand::random::<f64>() > self.config.sampling_rate {
+            return Ok((false, None));
+        }
+        
+        match self.collect_request_metrics(session, ctx).await {
+            Ok(metrics) => {
+                if !metrics.is_empty() {
+                    let mut metrics_map = self.metrics.lock().await;
+                    for metric in metrics {
+                        metrics_map.entry(metric.metric_name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(metric);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("AiAnalytics: Failed to collect request metrics: {}", e);
+            }
+        }
+        
+        Ok((false, None))
+    }
+
+    async fn handle_response(
+        &self,
+        step: PluginStep,
+        session: &mut Session,
+        ctx: &mut RouterContext,
+        upstream_response: &mut ResponseHeader,
+    ) -> Result<bool> {
+         if step != PluginStep::Response || !self.config.metrics_enabled {
+            return Ok(false);
+        }
+        // Sampling
+        if rand::random::<f64>() > self.config.sampling_rate {
+            return Ok(false);
+        }
+        
+        let mut modified = false;
+        match self.collect_response_metrics(session, ctx, upstream_response).await {
+             Ok(metrics) => {
+                if !metrics.is_empty() {
+                    // Store metrics (assuming storage was initialized in start)
+                    if let Some(storage) = self.storage.as_ref() {
+                        let mut storage_lock = storage.lock().await;
+                        for metric in metrics.clone() { // Clone metrics for storage & anomaly detection
+                            if let Err(e) = storage_lock.store_metric(metric).await {
+                                error!("AiAnalytics: Failed to store metric: {}", e);
+                            }
+                        }
+                    } else {
+                         warn!("AiAnalytics: Storage not initialized, cannot store metrics.");
+                    }
+                    
+                    // Feed metrics to anomaly detector
+                    if let Some(detector) = self.anomaly_detector.as_ref() {
+                        let mut detector_lock = detector.lock().await;
+                        for metric in &metrics {
+                            detector_lock.add_metric(metric.clone());
+                        }
+                        let anomalies = detector_lock.detect_anomalies();
+                        if !anomalies.is_empty() {
+                            info!("Detected {} anomalies in metrics", anomalies.len());
+                            // TODO: Handle anomalies (e.g., trigger alerts)
+                        }
+                    }
+                    
+                    // Add header
+                    upstream_response.insert_header("X-Analytics-Processed", "true")?;
+                    modified = true;
+                }
+            }
+            Err(e) => {
+                error!("AiAnalytics: Failed to collect response metrics: {}", e);
+            }
+        }
+        
+        // Check alerts (might be better done periodically in background)
+        if let Err(e) = self.check_alerts().await {
+             error!("AiAnalytics: Failed to check alerts: {}", e);
+        }
+        
+        // Prune history (might be better done periodically in background)
+        if Utc::now() - *self.last_prune_time.lock().await > Duration::hours(1) {
+            if let Err(e) = self.prune_metric_history().await {
+                error!("AiAnalytics: Failed to prune metrics: {}", e);
+            }
+        }
+
+        Ok(modified)
+    }
+
+    async fn start(&mut self) -> Result<(), PluginError> {
+        info!("Starting AiAnalytics plugin...");
+        self.initialize_storage_and_detector().await
+            .map_err(|e| PluginError::InitializationFailed(format!("Failed to initialize storage/detector: {}", e)))?;
+        info!("AiAnalytics plugin started successfully.");
+        Ok(())
+    }
+
+    async fn stop(&mut self) -> Result<(), PluginError> {
+        info!("Stopping AiAnalytics plugin...");
+        // Potential cleanup logic for storage connections if needed
+        Ok(())
+    }
+}
+
 struct InMemoryStorage {
     metrics: HashMap<String, Vec<AnalyticsMetric>>,
 }
@@ -718,18 +573,14 @@ impl RedisStorage {
 #[async_trait]
 impl AnalyticsStorage for RedisStorage {
     async fn store_metric(&mut self, _metric: AnalyticsMetric) -> Result<()> {
-        // TODO: 实现Redis存储逻辑
-        // 需要添加redis依赖并实现实际存储
         Ok(())
     }
 
     async fn get_metrics(&self, _metric_name: &str, _start_time: DateTime<Utc>, _end_time: DateTime<Utc>) -> Result<Vec<AnalyticsMetric>> {
-        // TODO: 实现Redis查询逻辑
         Ok(vec![])
     }
 
     async fn get_aggregated_metrics(&self, _metric_name: &str, _start_time: DateTime<Utc>, _end_time: DateTime<Utc>, _aggregation: AggregationType) -> Result<Vec<AnalyticsMetric>> {
-        // TODO: 实现Redis聚合查询逻辑
         Ok(vec![])
     }
 }
@@ -747,18 +598,14 @@ impl PostgresStorage {
 #[async_trait]
 impl AnalyticsStorage for PostgresStorage {
     async fn store_metric(&mut self, _metric: AnalyticsMetric) -> Result<()> {
-        // TODO: 实现Postgres存储逻辑
-        // 需要添加postgres依赖并实现实际存储
         Ok(())
     }
 
     async fn get_metrics(&self, _metric_name: &str, _start_time: DateTime<Utc>, _end_time: DateTime<Utc>) -> Result<Vec<AnalyticsMetric>> {
-        // TODO: 实现Postgres查询逻辑
         Ok(vec![])
     }
 
     async fn get_aggregated_metrics(&self, _metric_name: &str, _start_time: DateTime<Utc>, _end_time: DateTime<Utc>, _aggregation: AggregationType) -> Result<Vec<AnalyticsMetric>> {
-        // TODO: 实现Postgres聚合查询逻辑
         Ok(vec![])
     }
 }
@@ -776,17 +623,135 @@ impl CustomStorage {
 #[async_trait]
 impl AnalyticsStorage for CustomStorage {
     async fn store_metric(&mut self, _metric: AnalyticsMetric) -> Result<()> {
-        // TODO: 实现自定义存储逻辑
         Ok(())
     }
 
     async fn get_metrics(&self, _metric_name: &str, _start_time: DateTime<Utc>, _end_time: DateTime<Utc>) -> Result<Vec<AnalyticsMetric>> {
-        // TODO: 实现自定义查询逻辑
         Ok(vec![])
     }
 
     async fn get_aggregated_metrics(&self, _metric_name: &str, _start_time: DateTime<Utc>, _end_time: DateTime<Utc>, _aggregation: AggregationType) -> Result<Vec<AnalyticsMetric>> {
-        // TODO: 实现自定义聚合查询逻辑
         Ok(vec![])
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::core::PluginStep;
+    use crate::proxy_server::https_proxy::{RouterContext, RouterTimings};
+    use pingora::proxy::Session;
+    use http::HeaderValue;
+    use std::collections::HashMap;
+    use serde_json::Value;
+
+    // Helper to create a basic RouterContext
+    fn create_test_context() -> RouterContext {
+        RouterContext {
+            host: "test.example.com".to_string(),
+            route_container: Default::default(),
+            upstream: Default::default(),
+            extensions: HashMap::new(),
+            is_websocket: false,
+            timings: RouterTimings { request_filter_start: std::time::Instant::now() }, // Use constructor
+            upstream_response: None,
+            plugins_data: HashMap::new(),
+            request_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    #[test]
+    fn test_storage_type_from_str() {
+        assert_eq!(AnalyticsStorageType::from_str("inmemory"), Some(AnalyticsStorageType::InMemory));
+        assert_eq!(AnalyticsStorageType::from_str("redis"), Some(AnalyticsStorageType::Redis));
+        assert_eq!(AnalyticsStorageType::from_str("postgres"), Some(AnalyticsStorageType::Postgres));
+        assert_eq!(AnalyticsStorageType::from_str("OTHER"), Some(AnalyticsStorageType::Custom("OTHER".to_string())));
+    }
+
+    #[tokio::test]
+    async fn test_plugin_creation_and_start() {
+        let mut config = AiAnalyticsConfig {
+            metrics_enabled: true,
+            storage_type: AnalyticsStorageType::InMemory,
+            retention_days: 7,
+            sampling_rate: 1.0,
+            ..Default::default()
+        };
+        
+        let mut plugin = AiAnalytics::with_config(config.clone());
+        assert!(plugin.storage.is_none());
+        assert!(plugin.anomaly_detector.is_none());
+
+        // Test start initializes storage
+        let start_result = plugin.start().await;
+        assert!(start_result.is_ok());
+        assert!(plugin.storage.is_some()); 
+        
+        // Test start with anomaly detection config
+        config.anomaly_detection = Some(AnomalyDetectionConfig { 
+            detection_type: AnomalyDetectionType::StdDev, 
+            window_size: 100, 
+            threshold_multiplier: 3.0, 
+            min_data_points: 10,
+            alerts_enabled: false,
+            alert_channels: vec![],
+         });
+         let mut plugin_with_anomaly = AiAnalytics::with_config(config.clone());
+         let start_result_anomaly = plugin_with_anomaly.start().await;
+         assert!(start_result_anomaly.is_ok());
+         assert!(plugin_with_anomaly.storage.is_some());
+         assert!(plugin_with_anomaly.anomaly_detector.is_some());
+    }
+    
+    #[tokio::test]
+    async fn test_handle_response_adds_header() {
+        let config = AiAnalyticsConfig {
+             metrics_enabled: true,
+             storage_type: AnalyticsStorageType::InMemory,
+             retention_days: 7,
+             sampling_rate: 1.0,
+             ..Default::default()
+        };
+        let mut plugin = AiAnalytics::with_config(config);
+        // Manually call start to initialize storage
+        plugin.start().await.unwrap(); 
+        
+        let mut session = Session::new_dummy();
+        let mut ctx = create_test_context();
+        let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
+        
+        // Simulate the response step
+        let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should be true (modified)
+        
+        assert!(upstream_response.headers.get("X-Analytics-Processed").is_some());
+        assert_eq!(upstream_response.headers.get("X-Analytics-Processed").unwrap().to_str().unwrap(), "true");
+    }
+    
+     #[tokio::test]
+    async fn test_handle_response_skips_if_disabled() {
+        let config = AiAnalyticsConfig {
+             metrics_enabled: false, // Disabled
+             storage_type: AnalyticsStorageType::InMemory,
+             retention_days: 7,
+             sampling_rate: 1.0,
+             ..Default::default()
+        };
+        let mut plugin = AiAnalytics::with_config(config);
+        plugin.start().await.unwrap(); 
+        
+        let mut session = Session::new_dummy();
+        let mut ctx = create_test_context();
+        let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
+        
+        // Simulate the response step
+        let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Should be false (not modified)
+        
+        assert!(upstream_response.headers.get("X-Analytics-Processed").is_none());
+    }
+
+    // NOTE: Testing metric collection accuracy and storage requires more complex setup.
 } 
