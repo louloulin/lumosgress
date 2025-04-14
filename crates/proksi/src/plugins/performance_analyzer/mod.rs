@@ -300,7 +300,7 @@ impl PerformanceAnalyzer {
          let status_code = resp_header.map(|h| h.status.as_u16());
          let path = req_header.uri.path().to_string();
          let method = req_header.method.as_str().to_string();
-         let client_ip = session.client_ip().map(|ip| ip.to_string());
+         let client_ip = session.client_addr().map(|addr| addr.ip().to_string());
 
          // Extract provider/model from context if available
          let provider = ctx.plugins_data.get("llm_provider").and_then(|v| v.as_str().map(String::from));
@@ -444,6 +444,14 @@ impl PerformanceAnalyzer {
               "<h3>Hotspot Detection Disabled</h3>".to_string()
          };
 
+         // Get storage type description
+         let storage_desc = match config.storage {
+             MetricsStorage::Memory { max_entries } => format!("Memory (max {} entries)", max_entries),
+             MetricsStorage::File { ref path } => format!("File ({})", path),
+             MetricsStorage::Redis { ref url, .. } => format!("Redis ({})", url),
+             MetricsStorage::Prometheus { ref endpoint } => format!("Prometheus ({})", endpoint),
+         };
+
          let html = format!(r#"
  <!DOCTYPE html>
  <html lang="en">
@@ -459,7 +467,7 @@ impl PerformanceAnalyzer {
  </head>
  <body>
      <h1>Performance Analyzer</h1>
-     <p>Displaying metrics based on configured storage (currently Memory - max {} entries). Sampling rate: {}.</p>
+     <p>Displaying metrics based on configured storage (currently {}). Sampling rate: {}.</p>
      {}
      {}
      <p><a href="{}/api/metrics">View Raw Metrics (JSON)</a></p>
@@ -468,7 +476,7 @@ impl PerformanceAnalyzer {
  </body>
  </html>
          "#,
-         config.storage_to_string(), // Helper needed
+         storage_desc,
          config.sample_rate,
          summary_html,
          hotspots_html,
@@ -573,58 +581,28 @@ impl PerformanceAnalyzer {
             period_end: metrics.last().map_or_else(Utc::now, |m| m.timestamp),
         }
     }
-
-    // Helper to get string representation of storage config
-    fn storage_to_string(&self) -> String {
-        // This needs access to the config, which isn't directly available here.
-        // We'll pass config into serve_ui instead.
-         // Placeholder - implement properly in serve_ui
-        "Memory".to_string()
-    }
-
 }
 
 #[async_trait]
 impl Plugin for PerformanceAnalyzer {
-    fn name(&self) -> Cow<'static, str> {
-        "PerformanceAnalyzer".into()
+    fn name(&self) -> &'static str {
+        "PerformanceAnalyzer"
     }
 
-    fn new(plugin_config: Option<&RoutePlugin>) -> Result<Self>
-    where
-        Self: Sized,
-    {
-         info!("Creating new PerformanceAnalyzer plugin instance.");
-         let config = match parse_plugin_config(plugin_config) {
-             Ok(cfg) => cfg,
-             Err(e) => {
-                 error!("Failed to parse PerformanceAnalyzer config: {}. Using default.", e);
-                 PerformanceAnalyzerConfig::default()
-             }
-         };
-          info!("PerformanceAnalyzer config loaded: {:?}", config);
-
-         Ok(Self {
-             config: Arc::new(Mutex::new(config)),
-             metrics: Arc::new(Mutex::new(Vec::new())), // Initialize in-memory storage
-             hot_spots: Arc::new(Mutex::new(Vec::new())),
-         })
-    }
-
-    async fn start(&self) -> Result<(), PluginError> {
+    async fn start(&mut self) -> Result<(), PluginError> {
         info!("PerformanceAnalyzer plugin started.");
         // TODO: Initialize external storage backends here based on config
         Ok(())
     }
 
-    async fn stop(&self) -> Result<(), PluginError> {
+    async fn stop(&mut self) -> Result<(), PluginError> {
         info!("PerformanceAnalyzer plugin stopped.");
          // TODO: Cleanup external storage resources here
         Ok(())
     }
 
     async fn handle_request(
-        &self,
+        &mut self,
         step: PluginStep,
         session: &mut Session,
         ctx: &mut RouterContext,
@@ -649,7 +627,7 @@ impl Plugin for PerformanceAnalyzer {
                  // Handle UI and API requests first
                  if req_path == config_guard.ui_endpoint {
                     info!("Serving PerformanceAnalyzer UI for path: {}", req_path);
-                    return match self.serve_ui(session, ctx, &config_guard).await {
+                    return match self.serve_ui(session, &config_guard).await {
                          Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
                          Err(e) => {
                             error!("Error serving PerformanceAnalyzer UI: {}", e);
@@ -666,7 +644,9 @@ impl Plugin for PerformanceAnalyzer {
                          Err(e) => {
                              error!("Error handling PerformanceAnalyzer API request: {}", e);
                              let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
-                             let body = format!(r#"{{"error": "API processing error: {}"}}"#, e).into_bytes();
+                             // Construct JSON error payload separately
+                             let error_payload = serde_json::json!({ "error": format!("API processing error: {}", e) });
+                             let body = serde_json::to_vec(&error_payload)?;
                              session.write_response_header(Box::new(err_resp.clone()), false).await?;
                              session.write_response_body(Some(bytes::Bytes::from(body)), true).await?;
                              Ok((true, Some(HttpResponse::new(err_resp, None))))
@@ -704,7 +684,7 @@ impl Plugin for PerformanceAnalyzer {
     }
 
     async fn handle_response(
-        &self,
+        &mut self,
         step: PluginStep,
         session: &mut Session,
         ctx: &mut RouterContext,

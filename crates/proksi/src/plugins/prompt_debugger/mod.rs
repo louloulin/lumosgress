@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 use bytes;
 use serde_json::Value;
 use tracing::{error, info, warn};
+use html_escape;
 
 use crate::{
     config::RoutePlugin,
@@ -188,13 +189,6 @@ fn parse_plugin_config(plugin_config: Option<&RoutePlugin>) -> Result<PromptDebu
 }
 
 impl PromptDebugger {
-    pub fn new() -> Self {
-        Self {
-            config: Arc::new(Mutex::new(PromptDebuggerConfig::default())),
-            history: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
     fn analyze_prompt(&self, prompt: &str, config: &PromptDebuggerConfig) -> PromptAnalysisResult {
         let mut results = Vec::new();
         let mut suggestions = Vec::new();
@@ -424,16 +418,16 @@ impl PromptDebugger {
             suggestionsList.innerHTML = '';
 
             try {{
-                const apiUrl = `${uiEndpoint}/api/analyze`;
-                const response = await fetch(apiUrl, {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
+                const apiUrl = `${{uiEndpoint}}/api/analyze`;
+                const response = await fetch(apiUrl, {{ 
+                    method: \'POST\',
+                    headers: {{ \'Content-Type\': \'application/json\' }},
                     body: JSON.stringify({{ prompt: promptText }})
                 }});
 
                 if (!response.ok) {{
                     const errorText = await response.text();
-                    throw new Error(`API Error (${response.status}): ${errorText || 'Unknown error'}`);
+                    throw new Error(`API Error (${{response.status}}): ${{errorText || \'Unknown error\' }}`);
                 }}
 
                 const data = await response.json();

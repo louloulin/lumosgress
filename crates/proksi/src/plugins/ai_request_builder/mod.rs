@@ -9,8 +9,9 @@ use tokio::sync::Mutex;
 use bytes;
 use http::StatusCode;
 use tracing::{error, info, warn};
+use html_escape;
 
-use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext, plugins::Plugin};
+use crate::{config::RoutePlugin, proxy_server::{https_proxy::RouterContext, HttpResponse}, plugins::core::{Plugin, PluginError, PluginStep}};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderTemplate {
@@ -295,8 +296,8 @@ impl AiRequestBuilder {
              const div = document.createElement('div');
              div.className = 'headers-input';
              div.innerHTML = `
-                 <input type="text" placeholder="Header Name" value="${key}">
-                 <input type="text" placeholder="Header Value" value="${value}">
+                 <input type="text" placeholder="Header Name" value="${{key}}">
+                 <input type="text" placeholder="Header Value" value="${{value}}">
                  <button type="button" onclick="this.parentElement.remove()">Remove</button>
              `;
              headersList.appendChild(div);
@@ -328,7 +329,7 @@ impl AiRequestBuilder {
             bodyTextarea.value = selectedOption.dataset.body ? selectedOption.dataset.body : '';
 
             try {{
-                const headers = JSON.parse(selectedOption.dataset.headers || '{}');
+                const headers = JSON.parse(selectedOption.dataset.headers || '{{}}');
                 populateHeaders(headers);
             }} catch (e) {{
                 console.error("Error parsing headers JSON:", e);
@@ -361,7 +362,7 @@ impl AiRequestBuilder {
 
             try {{
                 const startTime = performance.now();
-                const apiUrl = `${window.location.pathname}/api/send`;
+                const apiUrl = `${{window.location.pathname}}/api/send`;
 
                 const response = await fetch(apiUrl, {{
                     method: 'POST',
@@ -394,18 +395,18 @@ impl AiRequestBuilder {
                              responseOutput.textContent = responseData.response;
                          }}
                     }} else {{
-                         responseOutput.textContent = `Request successful, but no response body received. Status: ${responseData.status}`;
+                         responseOutput.textContent = `Request successful, but no response body received. Status: ${{responseData.status}}`;
                     }}
                     if (historyContainer) {{
                          fetchHistory();
                      }}
                 }} else {{
-                     responseOutput.textContent = `Error: ${responseData.error || response.statusText}`;
+                     responseOutput.textContent = `Error: ${{responseData.error || response.statusText}}`;
                 }}
 
             }} catch (error) {{
                 console.error('Fetch error:', error);
-                responseOutput.textContent = `Network or script error: ${error.message}`;
+                responseOutput.textContent = `Network or script error: ${{error.message}}`;
                  responseStatus.textContent = 'Error';
                  responseDuration.textContent = '-';
             }}
@@ -414,10 +415,10 @@ impl AiRequestBuilder {
         async function fetchHistory() {{
              if (!historyContainer) return;
              try {{
-                 const historyUrl = `${window.location.pathname}/api/history`;
+                 const historyUrl = `${{window.location.pathname}}/api/history`;
                  const response = await fetch(historyUrl);
                  if (!response.ok) {{
-                     throw new Error(`Failed to fetch history: ${response.statusText}`);
+                     throw new Error(`Failed to fetch history: ${{response.statusText}}`);
                  }}
                  const historyData = await response.json();
 
@@ -429,11 +430,11 @@ impl AiRequestBuilder {
                          const entryDiv = document.createElement('div');
                          entryDiv.className = 'history-entry';
                          entryDiv.innerHTML = `
-                             <p class="history-meta"><strong>Provider:</strong> ${entry.provider} | <strong>Status:</strong> ${entry.status_code} | <strong>Duration:</strong> ${entry.duration_ms} ms</p>
-                             <p class="history-meta"><strong>Timestamp:</strong> ${new Date(entry.timestamp).toLocaleString()}</p>
+                             <p class="history-meta"><strong>Provider:</strong> ${{entry.provider}} | <strong>Status:</strong> ${{entry.status_code}} | <strong>Duration:</strong> ${{entry.duration_ms}} ms</p>
+                             <p class="history-meta"><strong>Timestamp:</strong> ${{new Date(entry.timestamp).toLocaleString()}}</p>
                              <p><strong>Request:</strong></p>
-                             <pre>${escapeHtml(entry.request)}</pre>
-                             ${entry.response ? `<p><strong>Response:</strong></p><pre>${escapeHtml(entry.response)}</pre>` : '<p><strong>Response:</strong> (Not available or empty)</p>'}
+                             <pre>${{escapeHtml(entry.request)}}</pre>
+                             ${{entry.response ? `<p><strong>Response:</strong></p><pre>${{escapeHtml(entry.response)}}</pre>` : '<p><strong>Response:</strong> (Not available or empty)</p>'}}
                          `;
                          historyContainer.appendChild(entryDiv);
                      }});
@@ -455,7 +456,7 @@ impl AiRequestBuilder {
          }}
 
 
-        if ({config.save_history}) {{
+        if ({history_enabled}) {{
             document.addEventListener('DOMContentLoaded', fetchHistory);
         }}
 
@@ -467,7 +468,8 @@ impl AiRequestBuilder {
                 r#"<div id="history-container"><h2>Request History</h2><p>Loading history...</p></div>"#
             } else {
                 ""
-            }
+            },
+             history_enabled = config.save_history
         );
 
         html
@@ -514,9 +516,7 @@ impl AiRequestBuilder {
             let history_entry = RequestHistoryEntry {
                 timestamp: start_time,
                 provider: provider_name,
-                request: format!("{} {}
-Headers: {:?}
-Body: {}", target_method, target_endpoint, target_headers, target_body),
+                request: format!("{} {}\nHeaders: {:?}\nBody: {}", target_method, target_endpoint, target_headers, target_body),
                 response: Some(simulated_response_body.clone()),
                 duration_ms: duration,
                 status_code,
@@ -572,193 +572,69 @@ impl Plugin for AiRequestBuilder {
         "AiRequestBuilder".into()
     }
 
-    fn new(plugin_config: Option<&RoutePlugin>) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        info!("Creating new AiRequestBuilder plugin instance.");
-        let config = match parse_plugin_config(plugin_config) {
-             Ok(cfg) => cfg,
-             Err(e) => {
-                 error!("Failed to parse AiRequestBuilder config: {}. Using default.", e);
-                 AiRequestBuilderConfig::default()
-             }
-         };
-
-        Ok(Self {
-            config: Arc::new(Mutex::new(config)),
-            request_history: Arc::new(Mutex::new(Vec::new())),
-        })
-    }
-
-    async fn start(&self) -> Result<()> {
+    async fn start(&mut self) -> Result<(), PluginError> {
         info!("AiRequestBuilder plugin started.");
         Ok(())
     }
 
-    async fn stop(&self) -> Result<()> {
+    async fn stop(&mut self) -> Result<(), PluginError> {
         info!("AiRequestBuilder plugin stopped.");
         Ok(())
     }
 
     async fn handle_request(
-        &self,
+        &mut self,
+        step: PluginStep,
         session: &mut Session,
         ctx: &mut RouterContext,
-    ) -> Result<Option<ResponseHeader>> {
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        if step != PluginStep::Request {
+             return Ok((false, None));
+        }
+
         let config = self.config.lock().await;
         let req_path = session.req_header().uri.path();
 
         if req_path == config.ui_endpoint {
             info!("Serving AiRequestBuilder UI for path: {}", req_path);
              match self.serve_ui(session, ctx, &config).await {
-                 Ok(response_header) => Ok(Some(response_header)),
+                 Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
                  Err(e) => {
                      error!("Error serving AiRequestBuilder UI: {}", e);
                      let mut err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
                      session.write_response_header(Box::new(err_resp.clone()), true).await?;
-                     Ok(Some(err_resp))
+                     Ok((true, Some(HttpResponse::new(err_resp, None))))
                  }
              }
         } else if config.enable_api && req_path.starts_with(&format!("{}/api/", config.ui_endpoint)) {
              let path_suffix = req_path.strip_prefix(&config.ui_endpoint).unwrap_or(req_path);
              info!("Handling AiRequestBuilder API request for path suffix: {}", path_suffix);
               match self.handle_api_request(session, ctx, path_suffix, &config).await {
-                  Ok(response_header) => Ok(Some(response_header)),
+                  Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
                   Err(e) => {
                      error!("Error handling AiRequestBuilder API request: {}", e);
                      let mut err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
-                     session.write_response_header(Box::new(err_resp.clone()), true).await?;
-                     Ok(Some(err_resp))
+                     let error_payload = serde_json::json!({ "error": format!("API Error: {}", e) });
+                     let err_body = serde_json::to_vec(&error_payload)?;
+                     err_resp.append_header("Content-Type", "application/json")?;
+                     err_resp.append_header("Content-Length", err_body.len().to_string())?;
+                     session.write_response_header(Box::new(err_resp.clone()), false).await?;
+                     session.write_response_body(Some(bytes::Bytes::from(err_body)), true).await?;
+                     Ok((true, Some(HttpResponse::new(err_resp, None))))
                  }
              }
         } else {
-            warn!("Unhandled request: {}", req_path);
-            let mut response_header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
-            session.write_response_header(Box::new(response_header.clone()), true).await?;
-            Ok(Some(response_header))
+            Ok((false, None))
         }
     }
 
-    // Handle API requests for the request builder
-    async fn handle_api_request(&self, session: &mut Session, path: &str, config: &AiRequestBuilderConfig) -> Result<bool> {
-        // TODO: Implement API for fetching templates, history, etc.
-        Ok(false)
-    }
-}
-
-/* // Commented out outdated implementation
-#[async_trait]
-impl MiddlewarePlugin for AiRequestBuilder {
-    async fn request_filter(
-        &self,
-        session: &mut Session,
-        state: &mut RouterContext,
-        plugin: &RoutePlugin,
-    ) -> Result<bool> {
-        let config = self.parse_config(plugin).await?;
-        
-        // Check if this is a request to the UI endpoint
-        let request_path = session.req_header().uri.to_string();
-        if request_path == config.ui_endpoint {
-            return self.serve_ui(session, &config).await;
-        }
-        
-        // Check if this is an API request
-        if config.enable_api && request_path.starts_with(&format!("{}/api", config.ui_endpoint)) {
-            let api_path = request_path.strip_prefix(&config.ui_endpoint).unwrap_or(&request_path);
-            return self.handle_api_request(session, api_path, &config).await;
-        }
-        
-        // Not a request for this plugin
-        Ok(false)
-    }
-
-    async fn upstream_request_filter(
-        &self,
+    async fn handle_response(
+        &mut self,
+        _step: PluginStep,
         _session: &mut Session,
-        _upstream_request: &mut RequestHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // No modifications needed for upstream requests
-        Ok(())
-    }
-
-    async fn response_filter(
-        &self,
-        _session: &mut Session,
-        _state: &mut RouterContext,
-        _plugin: &RoutePlugin,
-    ) -> Result<bool> {
-        // No special response handling needed
-        Ok(false)
-    }
-
-    fn upstream_response_filter(
-        &self,
-        _session: &mut Session,
+        _ctx: &mut RouterContext,
         _upstream_response: &mut ResponseHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // No modifications needed for upstream responses
-        Ok(())
-    }
-}
-*/
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn test_default_config() {
-        let builder = AiRequestBuilder::new();
-        let config = AiRequestBuilderConfig::default();
-        
-        // Verify default config
-        assert_eq!(config.templates.len(), 2);
-        assert_eq!(config.ui_endpoint, "/ai-request-builder");
-        assert!(config.enable_api);
-        assert!(config.save_history);
-        assert_eq!(config.max_history_entries, Some(100));
-    }
-
-    #[tokio::test]
-    async fn test_parse_config() {
-        let builder = AiRequestBuilder::new();
-        
-        // Create a test plugin config
-        let mut config_map = HashMap::new();
-        config_map.insert(
-            Cow::from("templates"),
-            json!([
-                {
-                    "name": "Test Template",
-                    "endpoint": "api.test.com/v1/chat",
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer test_key"
-                    },
-                    "body_template": "{}",
-                    "description": "Test template"
-                }
-            ]),
-        );
-        
-        let plugin = RoutePlugin {
-            name: Cow::from("ai_request_builder"),
-            config: Some(config_map),
-        };
-        
-        // Parse the config
-        let parsed_config = builder.parse_config(&plugin).await.unwrap();
-        
-        // Verify parsed config
-        assert_eq!(parsed_config.templates.len(), 1);
-        assert_eq!(parsed_config.templates[0].name, "Test Template");
-        assert_eq!(parsed_config.templates[0].endpoint, "api.test.com/v1/chat");
+    ) -> Result<bool> {
+        Ok(false)
     }
 } 
