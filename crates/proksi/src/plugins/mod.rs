@@ -56,7 +56,7 @@ pub use executor::{execute_plugins, initialize_plugins, shutdown_plugins};
 pub(crate) struct ProxyPlugins {
     pub basic_auth: Lazy<BasicAuth>,
     pub oauth2: Lazy<Oauth2>,
-    pub request_id: Lazy<RequestId>,
+    pub request_id: Lazy<request_id::RequestId>,
     
     pub llm_router: Lazy<LlmRouter>,
     pub prompt_transform: Lazy<PromptTransformer>,
@@ -73,7 +73,7 @@ pub(crate) struct ProxyPlugins {
 pub static PLUGINS: Lazy<ProxyPlugins> = Lazy::new(|| ProxyPlugins {
     basic_auth: Lazy::new(BasicAuth::new),
     oauth2: Lazy::new(Oauth2::new),
-    request_id: Lazy::new(RequestId::new),
+    request_id: Lazy::new(request_id::RequestId::new),
     
     llm_router: Lazy::new(LlmRouter::new),
     prompt_transform: Lazy::new(PromptTransformer::new),
