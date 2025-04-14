@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
+use std::{borrow::Cow, collections::HashMap, sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use std::any::Any;
 
 use anyhow::{anyhow, Result};
@@ -11,10 +11,10 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
+use crate::{config::RoutePlugin, plugins::core::{Plugin, PluginError, PluginStep}, proxy_server::{https_proxy::RouterContext, HttpResponse}};
 
 // Performance metrics for a request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,506 +121,636 @@ impl Default for PerformanceAnalyzerConfig {
     }
 }
 
-// Timing data for a request stored in context
-#[derive(Debug, Clone)]
-pub struct RequestTimings {
-    pub start_time: Instant,
-    pub request_processing_end: Option<Instant>,
-    pub upstream_request_start: Option<Instant>,
-    pub upstream_response_received: Option<Instant>,
-    pub response_processing_end: Option<Instant>,
+// Context data stored in plugins_data
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct PerformancePluginContext {
+    is_sampled: bool,
+    start_time_unix_ns: u128,
+    request_processing_end_unix_ns: Option<u128>,
+    upstream_request_start_unix_ns: Option<u128>,
+    upstream_response_received_unix_ns: Option<u128>,
 }
 
-// Holds data about the current performance trace
-#[derive(Debug, Clone)]
-pub struct PerformanceTrace {
-    pub trace_id: String,
-    pub spans: Vec<TraceSpan>,
-    pub start_time: Instant,
-    pub is_active: bool,
-}
+impl PerformancePluginContext {
+    fn new(is_sampled: bool) -> Self {
+        Self {
+            is_sampled,
+            start_time_unix_ns: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(),
+            request_processing_end_unix_ns: None,
+            upstream_request_start_unix_ns: None,
+            upstream_response_received_unix_ns: None,
+        }
+    }
 
-// A single span in a performance trace
-#[derive(Debug, Clone)]
-pub struct TraceSpan {
-    pub span_id: String,
-    pub parent_id: Option<String>,
-    pub name: String,
-    pub start_time: Instant,
-    pub end_time: Option<Instant>,
-    pub tags: HashMap<String, String>,
+    // Helper to get current time as u128 nanos since epoch
+    fn now_ns() -> u128 {
+         SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
+    }
+
+    // Helper to calculate duration in ms from Option<u128> ns timestamps
+    fn duration_ms(start_ns: Option<u128>, end_ns: Option<u128>) -> u64 {
+        match (start_ns, end_ns) {
+            (Some(start), Some(end)) if end >= start => ((end - start) / 1_000_000) as u64,
+            _ => 0, // Return 0 if timestamps are missing or invalid
+        }
+    }
 }
 
 // Main Performance Analyzer plugin
+#[derive(Debug, Default)]
 pub struct PerformanceAnalyzer {
-    config: Arc<Mutex<HashMap<String, PerformanceAnalyzerConfig>>>,
+    config: Arc<Mutex<PerformanceAnalyzerConfig>>,
     metrics: Arc<Mutex<Vec<RequestMetrics>>>,
     hot_spots: Arc<Mutex<Vec<HotSpot>>>,
 }
 
+fn parse_plugin_config(plugin_config: Option<&RoutePlugin>) -> Result<PerformanceAnalyzerConfig> {
+     let config_value = plugin_config
+        .and_then(|p| p.config.as_ref())
+        .ok_or_else(|| anyhow!("Missing PerformanceAnalyzer plugin configuration, using default."))?;
+
+     // Parse enabled flag
+    let enabled = config_value
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().enabled);
+
+    // Parse UI endpoint
+    let ui_endpoint = config_value
+        .get("ui_endpoint")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().ui_endpoint);
+
+    // Parse sample rate
+    let sample_rate = config_value
+        .get("sample_rate")
+        .and_then(|v| v.as_f64())
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().sample_rate)
+        .clamp(0.0, 1.0); // Ensure rate is between 0.0 and 1.0
+
+    // Parse detailed profiling flag
+    let detailed_profiling = config_value
+        .get("detailed_profiling")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().detailed_profiling);
+
+    // Parse hotspot detection flag
+    let hotspot_detection = config_value
+        .get("hotspot_detection")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().hotspot_detection);
+
+    // Parse token usage profiling flag
+    let profile_token_usage = config_value
+        .get("profile_token_usage")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().profile_token_usage);
+
+    // Parse max trace depth
+    let max_trace_depth = config_value
+        .get("max_trace_depth")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+
+    // Parse excluded paths
+    let exclude_paths = config_value
+        .get("exclude_paths")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().exclude_paths);
+
+    // Parse trace headers flag
+    let trace_headers = config_value
+        .get("trace_headers")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().trace_headers);
+
+    // Parse storage configuration
+    let storage = if let Some(storage_val) = config_value.get("storage") {
+         match serde_json::from_value::<MetricsStorage>(storage_val.clone()) {
+             Ok(s) => s,
+             Err(e) => {
+                 warn!("Failed to parse 'storage' config: {}. Using default Memory storage.", e);
+                 PerformanceAnalyzerConfig::default().storage
+             }
+         }
+    } else {
+        PerformanceAnalyzerConfig::default().storage
+    };
+
+    Ok(PerformanceAnalyzerConfig {
+        enabled,
+        ui_endpoint,
+        sample_rate,
+        detailed_profiling,
+        storage,
+        hotspot_detection,
+        profile_token_usage,
+        max_trace_depth,
+        exclude_paths,
+        trace_headers,
+    })
+}
+
 impl PerformanceAnalyzer {
-    pub fn new() -> Self {
-        Self {
-            config: Arc::new(Mutex::new(HashMap::new())),
-            metrics: Arc::new(Mutex::new(Vec::new())),
-            hot_spots: Arc::new(Mutex::new(Vec::new())),
-        }
+    // Finalize and store metrics for a completed request
+    async fn finalize_metrics(&self, session: &Session, ctx: &mut RouterContext, config: &PerformanceAnalyzerConfig) -> Result<()> {
+         const CONTEXT_KEY: &str = "performance_analyzer_context";
+         let perf_ctx_val = ctx.plugins_data.get(CONTEXT_KEY);
+
+         if perf_ctx_val.is_none() {
+             debug!("No performance context found for request ID: {}, skipping metrics finalization.", ctx.request_id);
+             return Ok(()); // Not sampled or context missing
+         }
+
+         let mut perf_ctx: PerformancePluginContext = serde_json::from_value(perf_ctx_val.unwrap().clone())?;
+
+         if !perf_ctx.is_sampled {
+              debug!("Request ID {} was not sampled, skipping metrics finalization.", ctx.request_id);
+              return Ok(());
+         }
+
+         let final_time_ns = PerformancePluginContext::now_ns();
+
+         // Calculate durations
+         let total_duration_ms = PerformancePluginContext::duration_ms(Some(perf_ctx.start_time_unix_ns), Some(final_time_ns));
+         let request_processing_ms = PerformancePluginContext::duration_ms(Some(perf_ctx.start_time_unix_ns), perf_ctx.request_processing_end_unix_ns);
+         let upstream_latency_ms = PerformancePluginContext::duration_ms(perf_ctx.upstream_request_start_unix_ns, perf_ctx.upstream_response_received_unix_ns);
+         // Response processing is the time from upstream response received to now (end of Log step)
+         let response_processing_ms = PerformancePluginContext::duration_ms(perf_ctx.upstream_response_received_unix_ns, Some(final_time_ns));
+
+         let req_header = session.req_header();
+         let resp_header = ctx.upstream_response.as_ref(); // Use response from context
+
+         // Extract data
+         let request_size = req_header.headers.get("content-length")
+             .and_then(|v| v.to_str().ok())
+             .and_then(|s| s.parse::<usize>().ok())
+             .unwrap_or(0);
+
+         let response_size = resp_header.and_then(|h| h.headers.get("content-length")
+             .and_then(|v| v.to_str().ok())
+             .and_then(|s| s.parse::<usize>().ok()));
+
+         let status_code = resp_header.map(|h| h.status.as_u16());
+         let path = req_header.uri.path().to_string();
+         let method = req_header.method.as_str().to_string();
+         let client_ip = session.client_ip().map(|ip| ip.to_string());
+
+         // Extract provider/model from context if available
+         let provider = ctx.plugins_data.get("llm_provider").and_then(|v| v.as_str().map(String::from));
+         let model = ctx.plugins_data.get("llm_model").and_then(|v| v.as_str().map(String::from));
+
+         // Placeholder for token counts (requires body access)
+         let token_count_input = if config.profile_token_usage { None } else { None };
+         let token_count_output = if config.profile_token_usage { None } else { None };
+
+         let error = if status_code.map_or(false, |s| s >= 400) {
+             // Basic error detection from status code
+             Some(format!("HTTP Status {}", status_code.unwrap()))
+         } else {
+             None
+         };
+
+         let metrics = RequestMetrics {
+             request_id: ctx.request_id.clone(),
+             timestamp: Utc::now(),
+             provider,
+             model,
+             request_size,
+             response_size,
+             total_duration_ms,
+             request_processing_ms,
+             upstream_latency_ms,
+             response_processing_ms,
+             token_count_input,
+             token_count_output,
+             error,
+             path,
+             method,
+             status_code,
+             client_ip,
+             tags: HashMap::new(), // Add relevant tags if needed
+         };
+
+         // Store metrics
+         self.store_metrics(metrics, config).await?; // Call the storage logic
+
+         // Optionally run hotspot detection (could be run periodically instead)
+         if config.hotspot_detection {
+             self.detect_hotspots().await?; // Run detection based on stored metrics
+         }
+
+         Ok(())
     }
 
-    // Parse configuration from the plugin
-    async fn parse_config(&self, plugin: &RoutePlugin) -> Result<PerformanceAnalyzerConfig> {
-        if let Some(config) = &plugin.config {
-            if let Some(config_name) = config.get("config_name") {
-                if let Some(config_name) = config_name.as_str() {
-                    let configs = self.config.lock().await;
-                    if let Some(config) = configs.get(config_name) {
-                        return Ok(config.clone());
-                    }
-                }
-            }
-
-            // Parse enabled flag
-            let enabled = config
-                .get("enabled")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-
-            // Parse UI endpoint
-            let ui_endpoint = config
-                .get("ui_endpoint")
-                .and_then(|v| v.as_str())
-                .unwrap_or("/performance-analyzer")
-                .to_string();
-
-            // Parse sample rate
-            let sample_rate = config
-                .get("sample_rate")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(1.0)
-                .clamp(0.0, 1.0);
-
-            // Parse detailed profiling flag
-            let detailed_profiling = config
-                .get("detailed_profiling")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-
-            // Parse hotspot detection flag
-            let hotspot_detection = config
-                .get("hotspot_detection")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-
-            // Parse token usage profiling flag
-            let profile_token_usage = config
-                .get("profile_token_usage")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-
-            // Parse max trace depth
-            let max_trace_depth = config
-                .get("max_trace_depth")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as usize);
-
-            // Parse excluded paths
-            let exclude_paths = config
-                .get("exclude_paths")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                        .collect()
-                })
-                .unwrap_or_else(|| vec!["/health".to_string(), "/metrics".to_string()]);
-
-            // Parse trace headers flag
-            let trace_headers = config
-                .get("trace_headers")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-
-            // Parse storage configuration
-            let storage = if let Some(storage_obj) = config.get("storage").and_then(|v| v.as_object()) {
-                let storage_type = storage_obj.get("type").and_then(|v| v.as_str());
-
-                match storage_type {
-                    Some("file") => {
-                        let path = storage_obj
-                            .get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("./performance_metrics.json")
-                            .to_string();
-                        MetricsStorage::File { path }
-                    }
-                    Some("redis") => {
-                        let url = storage_obj
-                            .get("url")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("redis://localhost:6379")
-                            .to_string();
-                        let key_prefix = storage_obj
-                            .get("key_prefix")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("perf:")
-                            .to_string();
-                        MetricsStorage::Redis { url, key_prefix }
-                    }
-                    Some("prometheus") => {
-                        let endpoint = storage_obj
-                            .get("endpoint")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("/metrics")
-                            .to_string();
-                        MetricsStorage::Prometheus { endpoint }
-                    }
-                    _ => {
-                        // Default to in-memory storage
-                        let max_entries = storage_obj
-                            .get("max_entries")
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(10000) as usize;
-                        MetricsStorage::Memory { max_entries }
-                    }
-                }
-            } else {
-                // Default to in-memory storage
-                MetricsStorage::Memory { max_entries: 10000 }
-            };
-
-            return Ok(PerformanceAnalyzerConfig {
-                enabled,
-                ui_endpoint,
-                sample_rate,
-                detailed_profiling,
-                storage,
-                hotspot_detection,
-                profile_token_usage,
-                max_trace_depth,
-                exclude_paths,
-                trace_headers,
-            });
-        }
-
-        // Return default configuration if no specific config provided
-        Ok(PerformanceAnalyzerConfig::default())
-    }
-
-    // Initialize timing context on each request
-    fn init_timing(&self, _ctx: &mut RouterContext) {
-        // Simplified implementation that doesn't use extensions
-    }
-    
-    // Mark the end of request processing
-    fn mark_request_processed(&self, _ctx: &mut RouterContext) {
-        // Simplified implementation that doesn't use extensions
-    }
-    
-    // Mark when upstream response is received
-    fn mark_upstream_received(&self, _ctx: &mut RouterContext) {
-        // Simplified implementation that doesn't use extensions
-    }
-    
-    // Finalize and compute all metrics
-    async fn finalize_metrics(&self, session: &mut Session, _ctx: &mut RouterContext, config: &PerformanceAnalyzerConfig) -> Result<()> {
-        // Skip sampling if needed
-        if rand::random::<f64>() > config.sample_rate {
-            return Ok(());
-        }
-        
-        // Simplified metrics collection - just use basic request info without timing
-        let metrics = RequestMetrics {
-            request_id: Uuid::new_v4().to_string(),
-            timestamp: Utc::now(),
-            provider: session.req_header().headers.get("x-llm-provider")
-                .and_then(|v| v.to_str().ok())
-                .map(String::from),
-            model: session.req_header().headers.get("x-llm-model")
-                .and_then(|v| v.to_str().ok())
-                .map(String::from),
-            request_size: session.req_header().headers
-                .get("content-length")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<usize>().ok())
-                .unwrap_or(0),
-            response_size: None, // Can't access response header safely
-            total_duration_ms: 0, // Placeholder
-            request_processing_ms: 0, // Placeholder
-            upstream_latency_ms: 0, // Placeholder
-            response_processing_ms: 0, // Placeholder
-            token_count_input: None,
-            token_count_output: None,
-            error: None,
-            path: session.req_header().uri.path().to_string(),
-            method: session.req_header().method.as_str().to_string(),
-            status_code: None,
-            client_ip: session.req_header().headers.get("x-forwarded-for")
-                .and_then(|v| v.to_str().ok())
-                .map(String::from),
-            tags: HashMap::new(),
-        };
-        
-        // Store metrics
-        self.store_metrics(metrics, config).await?;
-        
-        Ok(())
-    }
-
+    // Store collected metrics based on configuration
     async fn store_metrics(&self, metrics: RequestMetrics, config: &PerformanceAnalyzerConfig) -> Result<()> {
-        // Process based on storage configuration
         match &config.storage {
             MetricsStorage::Memory { max_entries } => {
-                // Store in memory with limit
-                let mut metrics_lock = self.metrics.lock().await;
-                metrics_lock.push(metrics);
-                
-                // Limit size if needed
-                if metrics_lock.len() > *max_entries {
-                    metrics_lock.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-                    metrics_lock.truncate(*max_entries);
+                let mut stored_metrics = self.metrics.lock().await;
+                stored_metrics.push(metrics);
+                // Prune if exceeding max entries
+                if stored_metrics.len() > *max_entries {
+                    let overflow = stored_metrics.len() - *max_entries;
+                    stored_metrics.drain(0..overflow); // Remove oldest
                 }
-            },
-            MetricsStorage::File { path: _ } => {
-                // Simplified - just log instead of writing to file
-                info!("Would store metric to file: {}", metrics.request_id);
-            },
-            MetricsStorage::Redis { url: _, key_prefix: _ } => {
-                // Simplified - just log instead of using Redis
-                info!("Would store metric to Redis: {}", metrics.request_id);
-            },
-            MetricsStorage::Prometheus { endpoint: _ } => {
-                // Simplified - just log instead of using Prometheus
-                info!("Would expose metric to Prometheus: {}", metrics.request_id);
-            },
+            }
+            MetricsStorage::File { path } => {
+                // TODO: Implement file storage (append to file, handle rotation)
+                warn!("File storage for performance metrics not yet implemented.");
+            }
+            MetricsStorage::Redis { url, key_prefix } => {
+                // TODO: Implement Redis storage (connect, store metric)
+                 warn!("Redis storage for performance metrics not yet implemented.");
+            }
+            MetricsStorage::Prometheus { endpoint } => {
+                // TODO: Implement Prometheus exporter (update gauges/counters)
+                 warn!("Prometheus storage for performance metrics not yet implemented.");
+            }
         }
-        
         Ok(())
     }
-    
+
+    // Detect performance hotspots based on stored metrics (simplified)
     async fn detect_hotspots(&self) -> Result<()> {
-        // Simplified hotspot detection
-        info!("Running hotspot detection");
+         // Basic hotspot detection logic (example: find slowest paths)
+         let metrics_snapshot = self.metrics.lock().await.clone(); // Clone for analysis
+         if metrics_snapshot.len() < 50 { // Need enough data
+             return Ok(());
+         }
+
+         let mut path_timings: HashMap<String, Vec<u64>> = HashMap::new();
+         for metric in metrics_snapshot {
+             path_timings.entry(metric.path.clone()).or_default().push(metric.total_duration_ms);
+         }
+
+         let mut potential_hotspots = vec![];
+         for (path, timings) in path_timings {
+            if timings.len() > 10 { // Consider paths with enough requests
+                 let avg_time = timings.iter().sum::<u64>() as f64 / timings.len() as f64;
+                 if avg_time > 1000.0 { // Example threshold: > 1 second average
+                     potential_hotspots.push(HotSpot {
+                         id: Uuid::new_v4().to_string(),
+                         name: format!("Slow Path: {}", path),
+                         description: format!("Requests to path '{}' have an average response time of {:.2} ms.", path, avg_time),
+                         impact_level: if avg_time > 5000.0 { HotSpotImpact::High } else { HotSpotImpact::Medium },
+                         avg_time_ms: avg_time,
+                         occurrence_count: timings.len(),
+                         recommendation: "Investigate the backend service or plugins affecting this path.".to_string(),
+                         identified_at: Utc::now(),
+                     });
+                 }
+             }
+         }
+
+         if !potential_hotspots.is_empty() {
+             let mut current_hotspots = self.hot_spots.lock().await;
+             // Simple update: replace old hotspots with newly detected ones
+             *current_hotspots = potential_hotspots;
+             info!("Detected {} potential performance hotspots.", current_hotspots.len());
+         }
+
         Ok(())
     }
 
-    // Serve the UI page 
-    async fn serve_ui(&self, session: &mut Session, _ctx: &mut RouterContext) -> Result<bool> {
-        // For actual implementation, this would render a proper UI
-        // For now, we'll just return a simple HTML page
-        let metrics = self.metrics.lock().await;
-        let hot_spots = self.hot_spots.lock().await;
-        
-        let html = format!(
-            r#"<!DOCTYPE html>
-            <html>
-            <head>
-                <title>Performance Analyzer</title>
-                <style>
-                    body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
-                    h1, h2 {{ color: #333; }}
-                    .dashboard {{ display: flex; flex-wrap: wrap; }}
-                    .card {{ background: #f5f5f5; border-radius: 5px; padding: 15px; margin: 10px; flex: 1 1 300px; }}
-                    .metrics {{ width: 100%; border-collapse: collapse; }}
-                    .metrics th, .metrics td {{ text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }}
-                    .hotspot {{ background: #fff8e1; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; }}
-                    .hotspot.high {{ background: #ffebee; border-left: 4px solid #f44336; }}
-                    .hotspot.critical {{ background: #ffebee; border-left: 4px solid #d50000; }}
-                </style>
-            </head>
-            <body>
-                <h1>Performance Analyzer Dashboard</h1>
-                <div class="dashboard">
-                    <div class="card">
-                        <h2>Request Statistics</h2>
-                        <p>Total Requests: {}</p>
-                        <p>Average Response Time: {:.2} ms</p>
-                        <p>Average Upstream Latency: {:.2} ms</p>
-                    </div>
-                </div>
-                <h2>Performance Hot Spots</h2>
-                <div class="hotspots">
-                    {}
-                </div>
-                <h2>Recent Requests</h2>
-                <table class="metrics">
-                    <tr>
-                        <th>Time</th>
-                        <th>Path</th>
-                        <th>Provider</th>
-                        <th>Model</th>
-                        <th>Total Time (ms)</th>
-                        <th>Upstream Latency (ms)</th>
-                    </tr>
-                    {}
-                </table>
-            </body>
-            </html>"#,
-            metrics.len(),
-            metrics.iter().map(|m| m.total_duration_ms as f64).sum::<f64>() / metrics.len().max(1) as f64,
-            metrics.iter().map(|m| m.upstream_latency_ms as f64).sum::<f64>() / metrics.len().max(1) as f64,
-            hot_spots.iter().map(|h| {
-                let severity_class = match h.impact_level {
-                    HotSpotImpact::Low => "",
-                    HotSpotImpact::Medium => "",
-                    HotSpotImpact::High => "high",
-                    HotSpotImpact::Critical => "critical",
-                };
-                format!(
-                    r#"<div class="hotspot {}">
-                        <h3>{}</h3>
-                        <p>{}</p>
-                        <p><strong>Average Time:</strong> {:.2} ms</p>
-                        <p><strong>Occurrences:</strong> {}</p>
-                        <p><strong>Recommendation:</strong> {}</p>
-                    </div>"#,
-                    severity_class, h.name, h.description, h.avg_time_ms, h.occurrence_count, h.recommendation
-                )
-            }).collect::<Vec<_>>().join("\n"),
-            metrics.iter().take(100).map(|m| {
-                format!(
-                    r#"<tr>
-                        <td>{}</td>
-                        <td>{}</td>
-                        <td>{}</td>
-                        <td>{}</td>
-                        <td>{}</td>
-                        <td>{}</td>
-                    </tr>"#,
-                    m.timestamp.format("%Y-%m-%d %H:%M:%S"),
-                    m.path,
-                    m.provider.as_deref().unwrap_or("-"),
-                    m.model.as_deref().unwrap_or("-"),
-                    m.total_duration_ms,
-                    m.upstream_latency_ms
-                )
-            }).collect::<Vec<_>>().join("\n")
-        );
+    // Serve the basic UI for the performance analyzer
+    async fn serve_ui(&self, session: &mut Session, _ctx: &mut RouterContext, config: &PerformanceAnalyzerConfig) -> Result<ResponseHeader> {
+        info!("Serving PerformanceAnalyzer UI");
+         // Generate summary and hotspots based on current data
+         let metrics_snapshot = self.metrics.lock().await.clone();
+         let summary = self.generate_summary(&metrics_snapshot);
+         let hotspots_snapshot = self.hot_spots.lock().await.clone();
 
-        // Write HTTP response
+         let summary_html = format!(
+             "<h3>Metrics Summary (Last {} requests)</h3><pre>{}</pre>",
+             metrics_snapshot.len(),
+             serde_json::to_string_pretty(&summary).unwrap_or_else(|e| format!("Error generating summary: {}", e))
+         );
+
+         let hotspots_html = if config.hotspot_detection && !hotspots_snapshot.is_empty() {
+             format!(
+                 "<h3>Detected Hotspots</h3><pre>{}</pre>",
+                 serde_json::to_string_pretty(&hotspots_snapshot).unwrap_or_else(|e| format!("Error generating hotspots: {}", e))
+             )
+         } else if config.hotspot_detection {
+             "<h3>Detected Hotspots</h3><p>No significant hotspots detected yet.</p>".to_string()
+         } else {
+              "<h3>Hotspot Detection Disabled</h3>".to_string()
+         };
+
+         let html = format!(r#"
+ <!DOCTYPE html>
+ <html lang="en">
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>Performance Analyzer</title>
+     <style>
+         body {{ font-family: sans-serif; padding: 20px; }}
+         pre {{ background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }}
+         h3 {{ border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 30px; }}
+     </style>
+ </head>
+ <body>
+     <h1>Performance Analyzer</h1>
+     <p>Displaying metrics based on configured storage (currently Memory - max {} entries). Sampling rate: {}.</p>
+     {}
+     {}
+     <p><a href="{}/api/metrics">View Raw Metrics (JSON)</a></p>
+     <p><a href="{}/api/summary">View Summary (JSON)</a></p>
+     <p><a href="{}/api/hotspots">View Hotspots (JSON)</a></p>
+ </body>
+ </html>
+         "#,
+         config.storage_to_string(), // Helper needed
+         config.sample_rate,
+         summary_html,
+         hotspots_html,
+         config.ui_endpoint, config.ui_endpoint, config.ui_endpoint // Links for API endpoints
+         );
+
         let content_length = html.len();
         let mut response = ResponseHeader::build(StatusCode::OK, None)?;
         response.append_header("Content-Type", "text/html; charset=utf-8")?;
         response.append_header("Content-Length", content_length.to_string())?;
 
-        session.write_response_header(Box::new(response), false).await?;
-        session.write_response_body(Some(bytes::Bytes::from(html.into_bytes())), true).await?;
+        session.write_response_header(Box::new(response.clone()), false).await?;
+        session.write_response_body(Some(bytes::Bytes::from(html)), true).await?;
 
-        Ok(true)
+        Ok(response)
     }
 
-    // Generate metrics summary
+    // Handle API requests
+    async fn handle_api_request(&self, session: &mut Session, path_suffix: &str, config: &PerformanceAnalyzerConfig) -> Result<ResponseHeader> {
+        let (data, status) = match path_suffix {
+            "/api/metrics" => {
+                let metrics_snapshot = self.metrics.lock().await.clone();
+                (serde_json::to_value(metrics_snapshot)?, StatusCode::OK)
+            }
+            "/api/summary" => {
+                 let metrics_snapshot = self.metrics.lock().await.clone();
+                 let summary = self.generate_summary(&metrics_snapshot);
+                 (serde_json::to_value(summary)?, StatusCode::OK)
+            }
+            "/api/hotspots" => {
+                 if config.hotspot_detection {
+                    let hotspots_snapshot = self.hot_spots.lock().await.clone();
+                    (serde_json::to_value(hotspots_snapshot)?, StatusCode::OK)
+                 } else {
+                     (json!({ "error": "Hotspot detection is disabled" }), StatusCode::SERVICE_UNAVAILABLE)
+                 }
+            }
+            _ => {
+                 warn!("Unhandled PerformanceAnalyzer API path: {}", path_suffix);
+                 (json!({ "error": "API endpoint not found" }), StatusCode::NOT_FOUND)
+            }
+        };
+
+        let body_bytes = bytes::Bytes::from(serde_json::to_vec(&data)?);
+        let mut response_header = ResponseHeader::build(status, None)?;
+        response_header.append_header("Content-Type", "application/json")?;
+        response_header.append_header("Content-Length", body_bytes.len().to_string())?;
+
+        session.write_response_header(Box::new(response_header.clone()), false).await?;
+        session.write_response_body(Some(body_bytes), true).await?;
+
+        Ok(response_header)
+    }
+
+    // Generate summary statistics from collected metrics
     fn generate_summary(&self, metrics: &[RequestMetrics]) -> MetricsSummary {
-        if metrics.is_empty() {
-            return MetricsSummary {
-                avg_response_time_ms: 0.0,
-                p50_response_time_ms: 0.0,
-                p90_response_time_ms: 0.0,
-                p95_response_time_ms: 0.0,
-                p99_response_time_ms: 0.0,
-                avg_upstream_latency_ms: 0.0,
-                avg_request_size: 0.0,
-                avg_response_size: 0.0,
-                avg_tokens_input: 0.0,
-                avg_tokens_output: 0.0,
-                success_rate: 100.0,
-                request_count: 0,
-                error_count: 0,
-                period_start: Utc::now(),
-                period_end: Utc::now(),
+         if metrics.is_empty() {
+             return MetricsSummary {
+                avg_response_time_ms: 0.0, p50_response_time_ms: 0.0, p90_response_time_ms: 0.0,
+                p95_response_time_ms: 0.0, p99_response_time_ms: 0.0, avg_upstream_latency_ms: 0.0,
+                avg_request_size: 0.0, avg_response_size: 0.0, avg_tokens_input: 0.0,
+                avg_tokens_output: 0.0, success_rate: 1.0, request_count: 0, error_count: 0,
+                period_start: Utc::now(), period_end: Utc::now(),
             };
         }
 
-        // Calculate response times for percentiles
-        let mut response_times: Vec<u64> = metrics.iter()
-            .map(|m| m.total_duration_ms)
-            .collect();
-        response_times.sort();
+        let mut response_times: Vec<u64> = metrics.iter().map(|m| m.total_duration_ms).collect();
+        response_times.sort_unstable();
 
-        let len = response_times.len();
-        let p50_idx = (len as f64 * 0.5) as usize;
-        let p90_idx = (len as f64 * 0.9) as usize;
-        let p95_idx = (len as f64 * 0.95) as usize;
-        let p99_idx = (len as f64 * 0.99) as usize;
+        let request_count = metrics.len();
+        let error_count = metrics.iter().filter(|m| m.error.is_some() || m.status_code.map_or(false, |s| s >= 400)).count();
+        let success_rate = if request_count > 0 { 1.0 - (error_count as f64 / request_count as f64) } else { 1.0 };
 
-        // Calculate averages
-        let avg_response_time = metrics.iter()
-            .map(|m| m.total_duration_ms as f64)
-            .sum::<f64>() / len as f64;
-        
-        let avg_upstream_latency = metrics.iter()
-            .map(|m| m.upstream_latency_ms as f64)
-            .sum::<f64>() / len as f64;
-        
-        let avg_request_size = metrics.iter()
-            .map(|m| m.request_size as f64)
-            .sum::<f64>() / len as f64;
-        
-        let response_sizes: Vec<f64> = metrics.iter()
-            .filter_map(|m| m.response_size.map(|s| s as f64))
-            .collect();
-        let avg_response_size = if !response_sizes.is_empty() {
-            response_sizes.iter().sum::<f64>() / response_sizes.len() as f64
-        } else {
-            0.0
-        };
-        
-        let token_inputs: Vec<f64> = metrics.iter()
-            .filter_map(|m| m.token_count_input.map(|t| t as f64))
-            .collect();
-        let avg_tokens_input = if !token_inputs.is_empty() {
-            token_inputs.iter().sum::<f64>() / token_inputs.len() as f64
-        } else {
-            0.0
-        };
-        
-        let token_outputs: Vec<f64> = metrics.iter()
-            .filter_map(|m| m.token_count_output.map(|t| t as f64))
-            .collect();
-        let avg_tokens_output = if !token_outputs.is_empty() {
-            token_outputs.iter().sum::<f64>() / token_outputs.len() as f64
-        } else {
-            0.0
-        };
-        
-        // Calculate error rate
-        let error_count = metrics.iter()
-            .filter(|m| m.error.is_some())
-            .count();
-        let success_rate = 100.0 * (len - error_count) as f64 / len as f64;
-        
-        // Find period start and end
-        let period_start = metrics.iter()
-            .map(|m| m.timestamp)
-            .min()
-            .unwrap_or_else(Utc::now);
-        let period_end = metrics.iter()
-            .map(|m| m.timestamp)
-            .max()
-            .unwrap_or_else(Utc::now);
+        let avg_response_time_ms = response_times.iter().sum::<u64>() as f64 / request_count as f64;
+        let avg_upstream_latency_ms = metrics.iter().map(|m| m.upstream_latency_ms).sum::<u64>() as f64 / request_count as f64;
+        let avg_request_size = metrics.iter().map(|m| m.request_size).sum::<usize>() as f64 / request_count as f64;
+        let avg_response_size = metrics.iter().filter_map(|m| m.response_size).sum::<usize>() as f64 / request_count as f64;
+        let avg_tokens_input = metrics.iter().filter_map(|m| m.token_count_input).sum::<usize>() as f64 / request_count as f64;
+        let avg_tokens_output = metrics.iter().filter_map(|m| m.token_count_output).sum::<usize>() as f64 / request_count as f64;
 
-        MetricsSummary {
-            avg_response_time_ms: avg_response_time,
-            p50_response_time_ms: response_times.get(p50_idx).copied().unwrap_or(0) as f64,
-            p90_response_time_ms: response_times.get(p90_idx).copied().unwrap_or(0) as f64,
-            p95_response_time_ms: response_times.get(p95_idx).copied().unwrap_or(0) as f64,
-            p99_response_time_ms: response_times.get(p99_idx).copied().unwrap_or(0) as f64,
-            avg_upstream_latency_ms: avg_upstream_latency,
+        let percentile = |p: f64| {
+            if response_times.is_empty() { return 0.0; }
+            let index = (p * (response_times.len() - 1) as f64).round() as usize;
+            response_times.get(index).copied().unwrap_or(0) as f64
+        };
+
+         MetricsSummary {
+            avg_response_time_ms,
+            p50_response_time_ms: percentile(0.50),
+            p90_response_time_ms: percentile(0.90),
+            p95_response_time_ms: percentile(0.95),
+            p99_response_time_ms: percentile(0.99),
+            avg_upstream_latency_ms,
             avg_request_size,
             avg_response_size,
             avg_tokens_input,
             avg_tokens_output,
             success_rate,
-            request_count: len,
+            request_count,
             error_count,
-            period_start,
-            period_end,
+            period_start: metrics.first().map_or_else(Utc::now, |m| m.timestamp),
+            period_end: metrics.last().map_or_else(Utc::now, |m| m.timestamp),
+        }
+    }
+
+    // Helper to get string representation of storage config
+    fn storage_to_string(&self) -> String {
+        // This needs access to the config, which isn't directly available here.
+        // We'll pass config into serve_ui instead.
+         // Placeholder - implement properly in serve_ui
+        "Memory".to_string()
+    }
+
+}
+
+#[async_trait]
+impl Plugin for PerformanceAnalyzer {
+    fn name(&self) -> Cow<'static, str> {
+        "PerformanceAnalyzer".into()
+    }
+
+    fn new(plugin_config: Option<&RoutePlugin>) -> Result<Self>
+    where
+        Self: Sized,
+    {
+         info!("Creating new PerformanceAnalyzer plugin instance.");
+         let config = match parse_plugin_config(plugin_config) {
+             Ok(cfg) => cfg,
+             Err(e) => {
+                 error!("Failed to parse PerformanceAnalyzer config: {}. Using default.", e);
+                 PerformanceAnalyzerConfig::default()
+             }
+         };
+          info!("PerformanceAnalyzer config loaded: {:?}", config);
+
+         Ok(Self {
+             config: Arc::new(Mutex::new(config)),
+             metrics: Arc::new(Mutex::new(Vec::new())), // Initialize in-memory storage
+             hot_spots: Arc::new(Mutex::new(Vec::new())),
+         })
+    }
+
+    async fn start(&self) -> Result<(), PluginError> {
+        info!("PerformanceAnalyzer plugin started.");
+        // TODO: Initialize external storage backends here based on config
+        Ok(())
+    }
+
+    async fn stop(&self) -> Result<(), PluginError> {
+        info!("PerformanceAnalyzer plugin stopped.");
+         // TODO: Cleanup external storage resources here
+        Ok(())
+    }
+
+    async fn handle_request(
+        &self,
+        step: PluginStep,
+        session: &mut Session,
+        ctx: &mut RouterContext,
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        const CONTEXT_KEY: &str = "performance_analyzer_context";
+        let config_guard = self.config.lock().await;
+
+        if !config_guard.enabled {
+            return Ok((false, None));
+        }
+
+        let req_path = session.req_header().uri.path();
+
+        // Check excluded paths
+        if config_guard.exclude_paths.iter().any(|p| req_path.starts_with(p)) {
+             debug!("Path {} excluded from performance analysis.", req_path);
+             return Ok((false, None));
+        }
+
+        match step {
+            PluginStep::Request => {
+                 // Handle UI and API requests first
+                 if req_path == config_guard.ui_endpoint {
+                    info!("Serving PerformanceAnalyzer UI for path: {}", req_path);
+                    return match self.serve_ui(session, ctx, &config_guard).await {
+                         Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
+                         Err(e) => {
+                            error!("Error serving PerformanceAnalyzer UI: {}", e);
+                            let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
+                            session.write_response_header(Box::new(err_resp.clone()), true).await?;
+                            Ok((true, Some(HttpResponse::new(err_resp, None))))
+                         }
+                     };
+                 } else if req_path.starts_with(&format!("{}/api/", config_guard.ui_endpoint)) {
+                    let path_suffix = req_path.strip_prefix(&config_guard.ui_endpoint).unwrap_or(req_path);
+                    info!("Handling PerformanceAnalyzer API request for path suffix: {}", path_suffix);
+                    return match self.handle_api_request(session, path_suffix, &config_guard).await {
+                         Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
+                         Err(e) => {
+                             error!("Error handling PerformanceAnalyzer API request: {}", e);
+                             let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
+                             let body = format!(r#"{{"error": "API processing error: {}"}}"#, e).into_bytes();
+                             session.write_response_header(Box::new(err_resp.clone()), false).await?;
+                             session.write_response_body(Some(bytes::Bytes::from(body)), true).await?;
+                             Ok((true, Some(HttpResponse::new(err_resp, None))))
+                         }
+                     };
+                 }
+
+                // Apply sampling
+                let is_sampled = rand::thread_rng().gen_range(0.0..1.0) < config_guard.sample_rate;
+                debug!("Request ID {} sampling decision: {}", ctx.request_id, is_sampled);
+
+                // Initialize context data
+                let perf_ctx = PerformancePluginContext::new(is_sampled);
+                ctx.plugins_data.insert(CONTEXT_KEY.to_string(), serde_json::to_value(perf_ctx)?);
+
+                Ok((false, None))
+            }
+            PluginStep::ProxyUpstream => {
+                 if let Some(perf_ctx_val) = ctx.plugins_data.get_mut(CONTEXT_KEY) {
+                     match serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
+                        Ok(mut perf_ctx) => {
+                             if perf_ctx.is_sampled {
+                                perf_ctx.upstream_request_start_unix_ns = Some(PerformancePluginContext::now_ns());
+                                *perf_ctx_val = serde_json::to_value(perf_ctx)?;
+                                debug!("Marked upstream_request_start for request ID: {}", ctx.request_id);
+                             }
+                         }
+                         Err(e) => error!("Failed to deserialize performance context in ProxyUpstream step: {}", e),
+                     }
+                 }
+                Ok((false, None))
+            }
+             _ => Ok((false, None)), // Ignore other steps in handle_request
+        }
+    }
+
+    async fn handle_response(
+        &self,
+        step: PluginStep,
+        session: &mut Session,
+        ctx: &mut RouterContext,
+        _upstream_response: &mut ResponseHeader, // We use ctx.upstream_response in Log step
+    ) -> Result<bool> {
+        const CONTEXT_KEY: &str = "performance_analyzer_context";
+        let config_guard = self.config.lock().await;
+
+         if !config_guard.enabled {
+            return Ok(false);
+        }
+
+        match step {
+            PluginStep::Response => {
+                // Mark upstream response received time
+                 if let Some(perf_ctx_val) = ctx.plugins_data.get_mut(CONTEXT_KEY) {
+                     match serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
+                         Ok(mut perf_ctx) => {
+                             if perf_ctx.is_sampled {
+                                 perf_ctx.upstream_response_received_unix_ns = Some(PerformancePluginContext::now_ns());
+                                 // Mark request processing end approx here (end of filters before upstream)
+                                 perf_ctx.request_processing_end_unix_ns = perf_ctx.upstream_request_start_unix_ns;
+                                 *perf_ctx_val = serde_json::to_value(perf_ctx)?;
+                                 debug!("Marked upstream_response_received for request ID: {}", ctx.request_id);
+                             }
+                         }
+                         Err(e) => error!("Failed to deserialize performance context in Response step: {}", e),
+                     }
+                 }
+                Ok(false) // Don't modify headers here
+            }
+            PluginStep::Log => {
+                // Finalize and store metrics
+                 match self.finalize_metrics(session, ctx, &config_guard).await {
+                     Ok(_) => debug!("Successfully finalized metrics for request ID: {}", ctx.request_id),
+                     Err(e) => error!("Error finalizing metrics for request ID {}: {}", ctx.request_id, e),
+                 }
+                Ok(false)
+            }
+             _ => Ok(false), // Ignore other steps
         }
     }
 }
 
-/* // Commented out outdated implementation
-#[async_trait]
-impl MiddlewarePlugin for PerformanceAnalyzer {
-    // ... implementation ...
-}
-*/ 
+// Remove old test module
+// #[cfg(test)]
+// mod tests {
+// ... tests ...
+// } 
