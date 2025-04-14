@@ -140,55 +140,14 @@ pub struct PromptDebugger {
     history: Arc<Mutex<Vec<PromptHistoryEntry>>>,
 }
 
-fn parse_plugin_config(plugin_config: Option<&RoutePlugin>) -> Result<PromptDebuggerConfig> {
-    let config_value = plugin_config
-        .and_then(|p| p.config.as_ref())
-        .ok_or_else(|| anyhow!("Missing PromptDebugger plugin configuration, using default."))?;
-
-    let ui_endpoint = config_value
-        .get("ui_endpoint")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| PromptDebuggerConfig::default().ui_endpoint);
-
-    let enable_api = config_value
-        .get("enable_api")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| PromptDebuggerConfig::default().enable_api);
-
-    let max_history_entries = config_value
-        .get("max_history_entries")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
-
-    let intercept_requests = config_value
-        .get("intercept_requests")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| PromptDebuggerConfig::default().intercept_requests);
-
-    let custom_rules_endpoint = config_value
-        .get("custom_rules_endpoint")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let rules = if let Some(rules_val) = config_value.get("rules") {
-        serde_json::from_value(rules_val.clone())
-            .map_err(|e| anyhow!("Failed to parse custom 'rules': {}", e))?
-    } else {
-        PromptDebuggerConfig::default().rules
-    };
-
-    Ok(PromptDebuggerConfig {
-        ui_endpoint,
-        enable_api,
-        max_history_entries,
-        rules,
-        custom_rules_endpoint,
-        intercept_requests,
-    })
-}
-
 impl PromptDebugger {
+    pub fn new() -> Self {
+        Self {
+            config: Arc::new(Mutex::new(PromptDebuggerConfig::default())),
+            history: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
     fn analyze_prompt(&self, prompt: &str, config: &PromptDebuggerConfig) -> PromptAnalysisResult {
         let mut results = Vec::new();
         let mut suggestions = Vec::new();
@@ -210,8 +169,8 @@ impl PromptDebugger {
 
             let matches = re.is_match(prompt);
             let details = if matches {
-                suggestions.push(rule.suggestion.clone());
-                rule.suggestion.clone()
+                        suggestions.push(rule.suggestion.clone());
+                        rule.suggestion.clone()
             } else {
                 format!("Rule '{}' did not match.", rule.name)
             };
@@ -253,10 +212,10 @@ impl PromptDebugger {
                 }
                  if let Some(last_msg) = messages.last() {
                      if let Some(content) = last_msg.get("content").and_then(|c| c.as_str()) {
-                         return Some(content.to_string());
-                     }
-                 }
-            }
+                                return Some(content.to_string());
+                            }
+                        }
+                    }
             if let Some(messages) = json_body.get("messages").and_then(|m| m.as_array()) {
                  let user_content: Vec<String> = messages.iter()
                     .filter_map(|msg| {
@@ -275,13 +234,13 @@ impl PromptDebugger {
                   if let Some(last_msg) = messages.last() {
                      if let Some(content_array) = last_msg.get("content").and_then(|c| c.as_array()) {
                           if let Some(text) = content_array.iter().find_map(|item| item.get("text").and_then(|t| t.as_str())) {
-                              return Some(text.to_string());
-                          }
+                                return Some(text.to_string());
+                            }
                      } else if let Some(content_str) = last_msg.get("content").and_then(|c| c.as_str()) {
                          return Some(content_str.to_string());
-                     }
-                 }
-            }
+                        }
+                    }
+                }
             if let Some(prompt) = json_body.get("prompt").and_then(|p| p.as_str()) {
                 return Some(prompt.to_string());
             }
@@ -294,7 +253,7 @@ impl PromptDebugger {
                  }
             }
         }
-
+        
         None
     }
 
@@ -373,26 +332,26 @@ impl PromptDebugger {
 </head>
 <body>
     <h1>Prompt Debugger</h1>
-
-    <div class="container">
+    
+        <div class="container">
         <div>
             <h2>Analyze Prompt</h2>
-            <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
+                <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
             <button id="analyze-btn">Analyze Prompt</button>
 
             <div id="results">
                 <h3>Analysis Results</h3>
                 <div id="analysis-output">Enter a prompt and click analyze.</div>
-                 <h3>Suggestions</h3>
+                    <h3>Suggestions</h3>
                  <div id="suggestions"><ul></ul></div>
-            </div>
-
+                </div>
+                
              <div id="rules-list">
                  <h2>Active Rules</h2>
                  <ul>{rules_html}</ul>
-             </div>
         </div>
-
+    </div>
+    
         <div>
             {history_section}
         </div>
@@ -434,13 +393,7 @@ impl PromptDebugger {
 
                 let resultsHtml = '';
                 if (data.results && data.results.length > 0) {{
-                    resultsHtml = data.results.map(r => `
-                        <div class="rule-result">
-                            <strong class="severity-${r.severity}">${r.rule_name} (${r.severity}):</strong>
-                            <span>${r.matches ? 'Matched' : 'Not Matched'}</span><br>
-                            <em>${escapeHtml(r.details)}</em>
-                        </div>
-                    `).join('');
+                    resultsHtml = data.results.map(r => `\n                        <div class="rule-result">\n                            <strong class="severity-${{r.severity}}">${{r.rule_name}} (${{r.severity}}):</strong>\n                            <span>${{r.matches ? 'Matched' : 'Not Matched'}}</span><br>\n                            <em>${{escapeHtml(r.details)}}</em>\n                        </div>\n                    `).join('');
                 }} else {{
                     resultsHtml = '<p>No rules were applied or matched.</p>';
                 }}
@@ -469,10 +422,10 @@ impl PromptDebugger {
              if (!apiEnabled || !historyEnabled || !historyContainer) return;
 
              try {{
-                const historyUrl = `${uiEndpoint}/api/history`;
+                const historyUrl = `${{uiEndpoint}}/api/history`;
                 const response = await fetch(historyUrl);
                 if (!response.ok) {{
-                    throw new Error(`Failed to fetch history (${response.status})`);
+                    throw new Error(`Failed to fetch history (${{response.status}})`);
                 }}
                 const historyData = await response.json();
 
@@ -483,15 +436,13 @@ impl PromptDebugger {
                     historyData.reverse().forEach(entry => {{
                         const entryDiv = document.createElement('div');
                         entryDiv.className = 'history-entry';
-                        entryDiv.innerHTML = `
-                            <div class="history-meta">
-                                ${new Date(entry.timestamp).toLocaleString()} | Request ID: ${entry.request_id ? escapeHtml(entry.request_id) : 'N/A'} | Model: ${entry.model ? escapeHtml(entry.model) : 'N/A'}
-                            </div>
-                            <p><strong>Original Prompt:</strong></p>
-                            <pre>${escapeHtml(entry.original_prompt)}</pre>
-                             ${entry.analysis_result.suggestions.length > 0 ? `<p><strong>Suggestions (${entry.analysis_result.suggestions.length}):</strong> ${escapeHtml(entry.analysis_result.suggestions.join(', '))}</p>` : ''}
-                            ${entry.response ? `<p><strong>Response Snippet:</strong></p><pre>${escapeHtml(entry.response.substring(0, 100))}...</pre>` : ''}
-                        `;
+                        
+                        // --- Simplified History Display --- 
+                        // Replace complex innerHTML with a placeholder to avoid format! issues
+                        const simpleMeta = `${{new Date(entry.timestamp).toLocaleString()}} - Request: ${entry.request_id ? entry.request_id : 'N/A'}`;
+                        entryDiv.innerHTML = `<p>${{escapeHtml(simpleMeta)}}</p>`;
+                        // --- End Simplified Display ---
+
                         entryDiv.addEventListener('click', () => {{
                             promptInput.value = entry.original_prompt;
                              window.scrollTo(0, 0);
@@ -555,9 +506,9 @@ impl PromptDebugger {
         config: &PromptDebuggerConfig,
     ) -> Result<ResponseHeader> {
          let req = session.req_header();
-         let method = req.method();
+         let method = &req.method;
 
-        if path_suffix == "/api/analyze" && method == &http::Method::POST {
+        if path_suffix == "/api/analyze" && *method == http::Method::POST {
             let body = session.read_request_body().await?.unwrap_or_default();
             let request_data: Value = serde_json::from_slice(&body)
                 .map_err(|e| anyhow!("Failed to parse JSON from API request: {}", e))?;
@@ -592,7 +543,7 @@ impl PromptDebugger {
 
             Ok(response_header)
 
-        } else if path_suffix == "/api/history" && method == &http::Method::GET {
+        } else if path_suffix == "/api/history" && *method == http::Method::GET {
              let history = self.history.lock().await;
              let history_json = serde_json::to_vec(&*history)?;
              let history_bytes = bytes::Bytes::from(history_json);
@@ -605,7 +556,7 @@ impl PromptDebugger {
             session.write_response_body(Some(history_bytes), true).await?;
 
             Ok(response_header)
-        } else {
+            } else {
              warn!("Unhandled PromptDebugger API request: {} {}", method, path_suffix);
              let mut response_header = ResponseHeader::build(StatusCode::NOT_FOUND, None)?;
              response_header.append_header("Content-Type", "application/json")?;
@@ -622,37 +573,17 @@ impl PromptDebugger {
 
 #[async_trait]
 impl Plugin for PromptDebugger {
-    fn name(&self) -> Cow<'static, str> {
-        "PromptDebugger".into()
+    fn name(&self) -> &'static str {
+        "prompt_debugger"
     }
 
-    fn new(plugin_config: Option<&RoutePlugin>) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        info!("Creating new PromptDebugger plugin instance.");
-        let config = match parse_plugin_config(plugin_config) {
-             Ok(cfg) => cfg,
-             Err(e) => {
-                 error!("Failed to parse PromptDebugger config: {}. Using default.", e);
-                 PromptDebuggerConfig::default()
-             }
-         };
-         info!("PromptDebugger config loaded: {:?}", config);
-
-        Ok(Self {
-            config: Arc::new(Mutex::new(config)),
-            history: Arc::new(Mutex::new(Vec::new())),
-        })
-    }
-
-    async fn start(&self) -> Result<(), PluginError> {
-        info!("PromptDebugger plugin started.");
+    async fn start(&mut self) -> Result<(), PluginError> {
+        info!("Starting prompt debugger plugin");
         Ok(())
     }
 
-    async fn stop(&self) -> Result<(), PluginError> {
-        info!("PromptDebugger plugin stopped.");
+    async fn stop(&mut self) -> Result<(), PluginError> {
+        info!("Stopping prompt debugger plugin");
         Ok(())
     }
 
@@ -662,83 +593,51 @@ impl Plugin for PromptDebugger {
         session: &mut Session,
         ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
-        if step != PluginStep::Request {
+        let config = self.config.lock().await.clone();
+        
+        if !config.intercept_requests {
             return Ok((false, None));
         }
-
-        let config = self.config.lock().await;
-        let req_path = session.req_header().uri.path();
-
-        if req_path == config.ui_endpoint {
-            info!("Serving PromptDebugger UI for path: {}", req_path);
-             match self.serve_ui(session, &config).await {
-                 Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
-                 Err(e) => {
-                     error!("Error serving PromptDebugger UI: {}", e);
-                     let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
-                     session.write_response_header(Box::new(err_resp.clone()), true).await?;
-                     Ok((true, Some(HttpResponse::new(err_resp, None))))
-                 }
-             }
+        
+        let req = session.req_header();
+        let req_path = req.uri.path().to_string();
+        
+        // Handle UI requests
+        if req_path.starts_with(&config.ui_endpoint) {
+            let path_suffix = req_path.strip_prefix(&config.ui_endpoint)
+                .unwrap_or("")
+                .trim_start_matches('/');
+                
+            if path_suffix.is_empty() || path_suffix == "index.html" {
+                match self.serve_ui(session, &config).await {
+                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Err(e) => {
+                        error!("Failed to serve UI: {}", e);
+                        return Ok((false, None));
+                    }
+                }
+            }
+            
+            // Handle API requests
+            if path_suffix.starts_with("api/") {
+                match self.handle_api_request(session, path_suffix, &config).await {
+                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Err(e) => {
+                        error!("Failed to handle API request: {}", e);
+                        return Ok((false, None));
+                    }
+                }
+            }
         }
-        else if config.enable_api && req_path.starts_with(&format!("{}/api/", config.ui_endpoint)) {
-             let path_suffix = req_path.strip_prefix(&config.ui_endpoint).unwrap_or(req_path);
-             info!("Handling PromptDebugger API request for path suffix: {}", path_suffix);
-              match self.handle_api_request(session, path_suffix, &config).await {
-                  Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
-                  Err(e) => {
-                     error!("Error handling PromptDebugger API request: {}", e);
-                     let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
-                     let body = format!(r#"{{"error": "API processing error: {}"}}"#, e).into_bytes();
-                     session.write_response_header(Box::new(err_resp.clone()), false).await?;
-                     session.write_response_body(Some(bytes::Bytes::from(body)), true).await?;
-                     Ok((true, Some(HttpResponse::new(err_resp, None))))
-                  }
-              }
-        }
-        else if config.intercept_requests {
-            info!("Intercepting request for prompt analysis: {}", req_path);
-             match session.read_request_body().await {
-                 Ok(Some(body_bytes)) => {
-                    match std::str::from_utf8(&body_bytes) {
-                         Ok(body_str) => {
-                             if let Some(prompt) = self.extract_prompt_from_request(body_str) {
-                                 info!("Extracted prompt for analysis (length: {})", prompt.len());
-                                 let analysis_result = self.analyze_prompt(&prompt, &config);
-
-                                 ctx.plugins_data.insert(
-                                     "prompt_debugger_analysis".to_string(),
-                                     serde_json::to_value(analysis_result)?
-                                 );
-                                  ctx.plugins_data.insert(
-                                     "prompt_debugger_original_prompt".to_string(),
-                                     serde_json::Value::String(prompt)
-                                 );
-                                 info!("Stored prompt analysis in context for request ID: {}", ctx.request_id);
-                             } else {
-                                 warn!("Could not extract prompt from request body for analysis.");
-                             }
-                         }
-                         Err(e) => {
-                             warn!("Request body is not valid UTF-8, cannot analyze prompt: {}", e);
-                         }
-                     }
-                     session.set_request_body(body_bytes);
-                 }
-                 Ok(None) => {
-                     info!("Request has no body, skipping prompt analysis.");
-                 }
-                 Err(e) => {
-                     error!("Failed to read request body for prompt analysis: {}", e);
-                 }
-             }
-             Ok((false, None))
-        }
-        else {
+        
+        // Handle request interception for prompt analysis
+        if step == PluginStep::ProxyUpstream {
+            self.handle_intercept(session, ctx, &config).await
+        } else {
             Ok((false, None))
         }
     }
-
+    
     async fn handle_response(
         &self,
         step: PluginStep,
@@ -747,11 +646,11 @@ impl Plugin for PromptDebugger {
         upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
         if step != PluginStep::Response {
-             return Ok(false);
+            return Ok(false);
         }
 
-        let config = self.config.lock().await;
-
+        let config = self.config.lock().await.clone();
+        
         if config.intercept_requests {
             if let Some(analysis_val) = ctx.plugins_data.get("prompt_debugger_analysis") {
                 if let Some(original_prompt_val) = ctx.plugins_data.get("prompt_debugger_original_prompt") {
@@ -784,7 +683,6 @@ impl Plugin for PromptDebugger {
 
                      upstream_response.insert_header("X-Prompt-Analyzed", "true")?;
                      return Ok(true);
-
                 } else {
                      warn!("Found prompt analysis but not original prompt in context for request ID: {}", ctx.request_id);
                 }

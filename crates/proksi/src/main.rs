@@ -15,10 +15,12 @@ use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService};
 use plugins::{
     tenant::TenantPlugin,
     compliance::CompliancePlugin,
-    api_server::ApiServerPlugin,
     core::Plugin,
 };
 use models::tenant::{ResourceQuota, ResourceUsage, TenantStatus};
+
+use crate::{config::Config, plugins::api_server::{ApiServerPlugin, ApiServerConfig, start_api_server}};
+use crate::plugins::manager::PluginManager;
 
 mod cache;
 mod channel;
@@ -195,104 +197,70 @@ fn main() -> Result<(), anyhow::Error> {
 /// 初始化和注册系统插件
 async fn initialize_plugins(proxy_config: Arc<config::Config>) -> Result<(), Box<dyn std::error::Error>> {
     // 根据配置动态加载插件
-    if let Some(plugins_config) = &proxy_config.plugins {
-        // 租户插件
-        if let Some(tenant_config) = &plugins_config.tenant {
-            if tenant_config.enabled {
-                tracing::info!("Initializing tenant plugin...");
-                let tenant_plugin = TenantPlugin::new(plugins::tenant::TenantPluginConfig {
-                    default_quota: ResourceQuota { 
-                        requests: tenant_config.default_requests.unwrap_or(1000) as u64, 
-                        tokens: tenant_config.default_tokens.unwrap_or(10000) as u64 
-                    },
-                    isolation_enabled: tenant_config.isolation_enabled.unwrap_or(true),
-                }).await?;
-                plugins::manager::register(tenant_plugin);
-                tracing::info!("Tenant plugin registered");
-            }
-        }
-        
-        // 合规插件
-        if let Some(compliance_config) = &plugins_config.compliance {
-            if compliance_config.enabled {
-                tracing::info!("Initializing compliance plugin...");
-                let compliance_plugin = CompliancePlugin::new(plugins::compliance::ComplianceConfig {
-                    retention_days: 90,
-                    enabled: true,
-                    storage_path: "/var/log/proksi/compliance".to_string(),
-                })
-                .await
-                .unwrap();
-                plugins::manager::register(compliance_plugin);
-                tracing::info!("Compliance plugin registered");
-            }
-        }
-        
-        // API服务器插件
-        if let Some(api_config) = &plugins_config.api_server {
+    let plugin_manager = PluginManager::new();
+
+    // 如果提供了插件配置
+    if let Some(plugin_configs) = &proxy_config.plugins {
+        // API 服务器插件
+        if let Some(api_config) = &plugin_configs.api_server {
             if api_config.enabled {
                 tracing::info!("Initializing API server plugin...");
-                let plugin_config = plugins::api_server::ApiServerConfig {
-                    listen_address: api_config.listen_address.clone().unwrap_or_else(|| "127.0.0.1:8080".to_string()),
-                    enable_access_log: api_config.enable_access_log.unwrap_or(true),
-                    enable_cors: api_config.enable_cors.unwrap_or(true),
-                };
-                
-                let mut api_server_plugin = ApiServerPlugin::new(plugin_config).await?;
-                api_server_plugin = api_server_plugin.with_system_config(proxy_config.clone());
-                
-                // 启动API服务器
-                if let Err(e) = api_server_plugin.start().await {
-                    tracing::error!("API server start error: {}", e);
-                } else {
-                    plugins::manager::register(api_server_plugin);
-                    tracing::info!("API server plugin registered and started");
-                }
+                let api_plugin = ApiServerPlugin::new(api_config.clone()).await?;
+                plugin_manager.register(Box::new(api_plugin)).await?;
             }
         }
-    } else {
-        // 如果没有显式配置插件，使用默认配置初始化核心插件
-        tracing::info!("No plugin configuration found, initializing with defaults...");
-        
-        // 默认初始化租户插件
-        let tenant_plugin = TenantPlugin::new(plugins::tenant::TenantPluginConfig {
-            default_quota: ResourceQuota { requests: 1000, tokens: 10000 },
-            isolation_enabled: true,
-        }).await?;
-        plugins::manager::register(tenant_plugin);
-        tracing::info!("Tenant plugin registered (default)");
-        
-        // 默认初始化合规插件
-        let compliance_plugin = CompliancePlugin::new(plugins::compliance::ComplianceConfig {
-            retention_days: 90,
-            enabled: true,
-            storage_path: "/var/log/proksi/compliance".to_string(),
-        })
-        .await
-        .unwrap();
-        plugins::manager::register(compliance_plugin);
-        tracing::info!("Compliance plugin registered (default)");
-        
-        // 默认初始化API服务器插件
-        let api_config = plugins::api_server::ApiServerConfig {
-            listen_address: "127.0.0.1:8080".to_string(),
-            enable_access_log: true,
-            enable_cors: true,
-        };
-        let mut api_server_plugin = ApiServerPlugin::new(api_config).await?;
-        api_server_plugin = api_server_plugin.with_system_config(proxy_config);
-        
-        if let Err(e) = api_server_plugin.start().await {
-            tracing::error!("API server start error: {}", e);
-        } else {
-            plugins::manager::register(api_server_plugin);
-            tracing::info!("API server plugin registered and started (default)");
+
+        // 合规性插件
+        if let Some(compliance_config) = &plugin_configs.compliance {
+            if compliance_config.enabled {
+                tracing::info!("Initializing compliance plugin...");
+                let compliance_plugin = CompliancePlugin::new(compliance_config.clone()).await?;
+                plugin_manager.register(Box::new(compliance_plugin)).await?;
+            }
         }
+
+        // 租户插件
+        if let Some(tenant_config) = &plugin_configs.tenant {
+            if tenant_config.enabled {
+                tracing::info!("Initializing tenant plugin...");
+                let tenant_plugin = <TenantPlugin as crate::plugins::core::Plugin>::new(tenant_config.clone()).await?;
+                plugin_manager.register(Box::new(tenant_plugin)).await?;
+            }
+        }
+        // ... 可以添加更多插件的初始化逻辑 ...
+    } else {
+        // 如果没有提供插件配置，则使用默认配置初始化必要的插件
+        tracing::warn!("No plugin configurations found in config file. Initializing default plugins.");
+
+        // 默认初始化 API 服务器插件
+        let default_api_config = plugins::api_server::ApiServerConfig::default();
+        let api_plugin = ApiServerPlugin::new(default_api_config).await?;
+        plugin_manager.register(Box::new(api_plugin)).await?;
+        tracing::info!("API server plugin registered (default)");
+
+        // 默认初始化合规性插件
+        let default_compliance_config = plugins::compliance::CompliancePluginConfig::default();
+        let compliance_plugin = CompliancePlugin::new(default_compliance_config).await?;
+        plugin_manager.register(Box::new(compliance_plugin)).await?;
+        tracing::info!("Compliance plugin registered (default)");
+
+        // 默认初始化租户插件
+        let tenant_plugin = <TenantPlugin as crate::plugins::core::Plugin>::new(plugins::tenant::TenantPluginConfig {
+            enabled: true, // 默认启用
+            // 其他字段使用默认值或根据需要设置
+            ..Default::default()
+        }).await?;
+        plugin_manager.register(Box::new(tenant_plugin)).await?;
+        tracing::info!("Tenant plugin registered (default)");
     }
 
-    // 输出已加载的插件列表
-    let plugins = plugins::manager::list_plugins();
-    tracing::info!("Loaded plugins: {:?}", plugins);
+    // 启动所有已注册的插件
+    for plugin in plugin_manager.get_all().await {
+        plugin.start().await?;
+    }
+
+    // 将 plugin_manager 存储到全局状态或传递给需要它的组件
+    // 例如，可以将其存储在 Tokio 的任务本地存储或通过 Arc<Mutex<...>> 共享
 
     Ok(())
 }

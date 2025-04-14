@@ -49,9 +49,13 @@ use prompt_debugger::PromptDebugger;
 use performance_analyzer::PerformanceAnalyzer;
 
 // 重新导出新的插件接口
-pub use core::{Plugin as NewPlugin, PluginType, PluginStep, PluginError as NewPluginError, 
+pub use core::{Plugin, PluginType, PluginStep, PluginError, 
                PluginFactory, PluginMetadata, PluginRegistry};
 pub use executor::{execute_plugins, initialize_plugins, shutdown_plugins};
+
+pub use tenant::TenantPlugin;
+pub use compliance::CompliancePlugin;
+pub use api_server::ApiServerPlugin;
 
 pub(crate) struct ProxyPlugins {
     pub basic_auth: Lazy<BasicAuth>,

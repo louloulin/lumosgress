@@ -123,32 +123,32 @@ fn parse_plugin_config(plugin_config: Option<&RoutePlugin>) -> Result<AiRequestB
     };
 
     let ui_endpoint = config_value
-        .get("ui_endpoint")
-        .and_then(|v| v.as_str())
+                        .get("ui_endpoint")
+                        .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| AiRequestBuilderConfig::default().ui_endpoint);
 
     let enable_api = config_value
-        .get("enable_api")
-        .and_then(|v| v.as_bool())
+                        .get("enable_api")
+                        .and_then(|v| v.as_bool())
         .unwrap_or_else(|| AiRequestBuilderConfig::default().enable_api);
 
     let save_history = config_value
-        .get("save_history")
-        .and_then(|v| v.as_bool())
+                        .get("save_history")
+                        .and_then(|v| v.as_bool())
         .unwrap_or_else(|| AiRequestBuilderConfig::default().save_history);
 
     let max_history_entries = config_value
-        .get("max_history_entries")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
+                        .get("max_history_entries")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize);
 
     Ok(AiRequestBuilderConfig {
         templates,
-        ui_endpoint,
-        enable_api,
-        save_history,
-        max_history_entries,
+                        ui_endpoint,
+                        enable_api,
+                        save_history,
+                        max_history_entries,
     })
 }
 
@@ -233,7 +233,7 @@ impl AiRequestBuilder {
 </head>
 <body>
     <h1>AI Request Builder</h1>
-    <div class="container">
+        <div class="container">
         <div>
             <h2>Build Request</h2>
             <div class="form-group">
@@ -274,7 +274,7 @@ impl AiRequestBuilder {
                 <pre id="response-output">Response will appear here...</pre>
                 <p>Status: <code id="response-status">-</code></p>
                 <p>Duration: <code id="response-duration">-</code> ms</p>
-            </div>
+    </div>
              {history_section}
         </div>
     </div>
@@ -477,9 +477,9 @@ impl AiRequestBuilder {
 
     async fn handle_api_request(&self, session: &mut Session, ctx: &mut RouterContext, path_suffix: &str, config: &AiRequestBuilderConfig) -> Result<ResponseHeader> {
         let req = session.req_header();
-        let method = req.method();
+        let method = req.method.as_str();
 
-        if path_suffix == "/api/send" && method == &http::Method::POST {
+        if path_suffix == "/api/send" && method == "POST" {
             let body = session.read_request_body().await?.unwrap_or_default();
             let request_data: serde_json::Value = serde_json::from_slice(&body)
                 .map_err(|e| anyhow!("Failed to parse request data from UI: {}", e))?;
@@ -538,7 +538,7 @@ impl AiRequestBuilder {
             session.write_response_body(Some(response_body_bytes), true).await?;
 
             Ok(response_header)
-        } else if path_suffix == "/api/history" && method == &http::Method::GET && config.save_history {
+        } else if path_suffix == "/api/history" && method == "GET" && config.save_history {
             let history = self.request_history.lock().await;
             let history_json = serde_json::to_vec(&*history)?;
             let history_bytes = bytes::Bytes::from(history_json);
@@ -568,8 +568,8 @@ impl AiRequestBuilder {
 
 #[async_trait]
 impl Plugin for AiRequestBuilder {
-    fn name(&self) -> Cow<'static, str> {
-        "AiRequestBuilder".into()
+    fn name(&self) -> &'static str {
+        "AiRequestBuilder"
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
@@ -583,7 +583,7 @@ impl Plugin for AiRequestBuilder {
     }
 
     async fn handle_request(
-        &mut self,
+        &self,
         step: PluginStep,
         session: &mut Session,
         ctx: &mut RouterContext,
@@ -598,29 +598,45 @@ impl Plugin for AiRequestBuilder {
         if req_path == config.ui_endpoint {
             info!("Serving AiRequestBuilder UI for path: {}", req_path);
              match self.serve_ui(session, ctx, &config).await {
-                 Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
+                 Ok(response_header) => Ok((true, Some(HttpResponse::new(
+                     response_header.status_code, 
+                     response_header.headers.clone(), 
+                     bytes::Bytes::new()
+                 )))),
                  Err(e) => {
                      error!("Error serving AiRequestBuilder UI: {}", e);
-                     let mut err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
+                     let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
                      session.write_response_header(Box::new(err_resp.clone()), true).await?;
-                     Ok((true, Some(HttpResponse::new(err_resp, None))))
+                     Ok((true, Some(HttpResponse::new(
+                         err_resp.status_code,
+                         err_resp.headers.clone(),
+                         bytes::Bytes::new()
+                     ))))
                  }
              }
         } else if config.enable_api && req_path.starts_with(&format!("{}/api/", config.ui_endpoint)) {
              let path_suffix = req_path.strip_prefix(&config.ui_endpoint).unwrap_or(req_path);
              info!("Handling AiRequestBuilder API request for path suffix: {}", path_suffix);
               match self.handle_api_request(session, ctx, path_suffix, &config).await {
-                  Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
+                  Ok(response_header) => Ok((true, Some(HttpResponse::new(
+                      response_header.status_code,
+                      response_header.headers.clone(),
+                      bytes::Bytes::new()
+                  )))),
                   Err(e) => {
                      error!("Error handling AiRequestBuilder API request: {}", e);
-                     let mut err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
+                     let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
                      let error_payload = serde_json::json!({ "error": format!("API Error: {}", e) });
                      let err_body = serde_json::to_vec(&error_payload)?;
                      err_resp.append_header("Content-Type", "application/json")?;
                      err_resp.append_header("Content-Length", err_body.len().to_string())?;
                      session.write_response_header(Box::new(err_resp.clone()), false).await?;
                      session.write_response_body(Some(bytes::Bytes::from(err_body)), true).await?;
-                     Ok((true, Some(HttpResponse::new(err_resp, None))))
+                     Ok((true, Some(HttpResponse::new(
+                         err_resp.status_code,
+                         err_resp.headers.clone(),
+                         bytes::Bytes::new()
+                     ))))
                  }
              }
         } else {
@@ -629,7 +645,7 @@ impl Plugin for AiRequestBuilder {
     }
 
     async fn handle_response(
-        &mut self,
+        &self,
         _step: PluginStep,
         _session: &mut Session,
         _ctx: &mut RouterContext,

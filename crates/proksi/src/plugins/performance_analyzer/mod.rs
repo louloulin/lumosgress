@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use std::{borrow::Cow, collections::HashMap, net::SocketAddr, sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use std::any::Any;
 
 use anyhow::{anyhow, Result};
@@ -164,100 +164,15 @@ pub struct PerformanceAnalyzer {
     hot_spots: Arc<Mutex<Vec<HotSpot>>>,
 }
 
-fn parse_plugin_config(plugin_config: Option<&RoutePlugin>) -> Result<PerformanceAnalyzerConfig> {
-     let config_value = plugin_config
-        .and_then(|p| p.config.as_ref())
-        .ok_or_else(|| anyhow!("Missing PerformanceAnalyzer plugin configuration, using default."))?;
-
-     // Parse enabled flag
-    let enabled = config_value
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().enabled);
-
-    // Parse UI endpoint
-    let ui_endpoint = config_value
-        .get("ui_endpoint")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().ui_endpoint);
-
-    // Parse sample rate
-    let sample_rate = config_value
-        .get("sample_rate")
-        .and_then(|v| v.as_f64())
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().sample_rate)
-        .clamp(0.0, 1.0); // Ensure rate is between 0.0 and 1.0
-
-    // Parse detailed profiling flag
-    let detailed_profiling = config_value
-        .get("detailed_profiling")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().detailed_profiling);
-
-    // Parse hotspot detection flag
-    let hotspot_detection = config_value
-        .get("hotspot_detection")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().hotspot_detection);
-
-    // Parse token usage profiling flag
-    let profile_token_usage = config_value
-        .get("profile_token_usage")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().profile_token_usage);
-
-    // Parse max trace depth
-    let max_trace_depth = config_value
-        .get("max_trace_depth")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
-
-    // Parse excluded paths
-    let exclude_paths = config_value
-        .get("exclude_paths")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|item| item.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().exclude_paths);
-
-    // Parse trace headers flag
-    let trace_headers = config_value
-        .get("trace_headers")
-        .and_then(|v| v.as_bool())
-        .unwrap_or_else(|| PerformanceAnalyzerConfig::default().trace_headers);
-
-    // Parse storage configuration
-    let storage = if let Some(storage_val) = config_value.get("storage") {
-         match serde_json::from_value::<MetricsStorage>(storage_val.clone()) {
-             Ok(s) => s,
-             Err(e) => {
-                 warn!("Failed to parse 'storage' config: {}. Using default Memory storage.", e);
-                 PerformanceAnalyzerConfig::default().storage
-             }
-         }
-    } else {
-        PerformanceAnalyzerConfig::default().storage
-    };
-
-    Ok(PerformanceAnalyzerConfig {
-        enabled,
-        ui_endpoint,
-        sample_rate,
-        detailed_profiling,
-        storage,
-        hotspot_detection,
-        profile_token_usage,
-        max_trace_depth,
-        exclude_paths,
-        trace_headers,
-    })
-}
-
 impl PerformanceAnalyzer {
+    pub fn new() -> Self {
+        Self {
+            config: Arc::new(Mutex::new(PerformanceAnalyzerConfig::default())),
+            metrics: Arc::new(Mutex::new(Vec::new())),
+            hot_spots: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
     // Finalize and store metrics for a completed request
     async fn finalize_metrics(&self, session: &Session, ctx: &mut RouterContext, config: &PerformanceAnalyzerConfig) -> Result<()> {
          const CONTEXT_KEY: &str = "performance_analyzer_context";
@@ -300,7 +215,12 @@ impl PerformanceAnalyzer {
          let status_code = resp_header.map(|h| h.status.as_u16());
          let path = req_header.uri.path().to_string();
          let method = req_header.method.as_str().to_string();
-         let client_ip = session.client_addr().map(|addr| addr.ip().to_string());
+         let client_ip = session.client_addr().map(|sa| {
+             match sa {
+                 pingora::protocols::l4::socket::SocketAddr::Inet(addr) => addr.ip().to_string(),
+                 pingora::protocols::l4::socket::SocketAddr::Unix(_) => "unix_socket".to_string(),
+             }
+         });
 
          // Extract provider/model from context if available
          let provider = ctx.plugins_data.get("llm_provider").and_then(|v| v.as_str().map(String::from));
@@ -495,7 +415,7 @@ impl PerformanceAnalyzer {
     }
 
     // Handle API requests
-    async fn handle_api_request(&self, session: &mut Session, path_suffix: &str, config: &PerformanceAnalyzerConfig) -> Result<ResponseHeader> {
+    async fn handle_api_request(&self, session: &mut Session, _ctx: &mut RouterContext, path_suffix: &str, config: &PerformanceAnalyzerConfig) -> Result<ResponseHeader> {
         let (data, status) = match path_suffix {
             "/api/metrics" => {
                 let metrics_snapshot = self.metrics.lock().await.clone();
@@ -586,145 +506,178 @@ impl PerformanceAnalyzer {
 #[async_trait]
 impl Plugin for PerformanceAnalyzer {
     fn name(&self) -> &'static str {
-        "PerformanceAnalyzer"
+        "performance_analyzer"
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
-        info!("PerformanceAnalyzer plugin started.");
-        // TODO: Initialize external storage backends here based on config
+        info!("Starting performance analyzer plugin");
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        info!("PerformanceAnalyzer plugin stopped.");
-         // TODO: Cleanup external storage resources here
+        info!("Stopping performance analyzer plugin");
         Ok(())
     }
 
     async fn handle_request(
-        &mut self,
+        &self,
         step: PluginStep,
         session: &mut Session,
         ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
-        const CONTEXT_KEY: &str = "performance_analyzer_context";
-        let config_guard = self.config.lock().await;
-
-        if !config_guard.enabled {
+        let config = self.config.lock().await.clone();
+        
+        if !config.enabled {
             return Ok((false, None));
         }
-
-        let req_path = session.req_header().uri.path();
-
-        // Check excluded paths
-        if config_guard.exclude_paths.iter().any(|p| req_path.starts_with(p)) {
-             debug!("Path {} excluded from performance analysis.", req_path);
-             return Ok((false, None));
+        
+        let req = session.req_header();
+        let req_path = req.uri.path().to_string();
+        
+        // Check if path is excluded
+        if config.exclude_paths.iter().any(|path| req_path.starts_with(path)) {
+            return Ok((false, None));
         }
-
+        
+        // Handle UI endpoints
+        if req_path.starts_with(&config.ui_endpoint) {
+            let path_suffix = req_path.strip_prefix(&config.ui_endpoint)
+                .unwrap_or("")
+                .trim_start_matches('/');
+                
+            if path_suffix.is_empty() || path_suffix == "index.html" {
+                match self.serve_ui(session, ctx, &config).await {
+                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Err(e) => {
+                        error!("Failed to serve UI: {}", e);
+                        return Ok((false, None));
+                    }
+                }
+            }
+            
+            // Handle API requests
+            if path_suffix.starts_with("api/") {
+                match self.handle_api_request(session, ctx, path_suffix, &config).await {
+                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Err(e) => {
+                        error!("Failed to handle API request: {}", e);
+                        return Ok((false, None));
+                    }
+                }
+            }
+        }
+        
+        // Process request based on step
         match step {
             PluginStep::Request => {
-                 // Handle UI and API requests first
-                 if req_path == config_guard.ui_endpoint {
-                    info!("Serving PerformanceAnalyzer UI for path: {}", req_path);
-                    return match self.serve_ui(session, &config_guard).await {
-                         Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
-                         Err(e) => {
-                            error!("Error serving PerformanceAnalyzer UI: {}", e);
-                            let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
-                            session.write_response_header(Box::new(err_resp.clone()), true).await?;
-                            Ok((true, Some(HttpResponse::new(err_resp, None))))
-                         }
-                     };
-                 } else if req_path.starts_with(&format!("{}/api/", config_guard.ui_endpoint)) {
-                    let path_suffix = req_path.strip_prefix(&config_guard.ui_endpoint).unwrap_or(req_path);
-                    info!("Handling PerformanceAnalyzer API request for path suffix: {}", path_suffix);
-                    return match self.handle_api_request(session, path_suffix, &config_guard).await {
-                         Ok(response_header) => Ok((true, Some(HttpResponse::new(response_header, None)))),
-                         Err(e) => {
-                             error!("Error handling PerformanceAnalyzer API request: {}", e);
-                             let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
-                             // Construct JSON error payload separately
-                             let error_payload = serde_json::json!({ "error": format!("API processing error: {}", e) });
-                             let body = serde_json::to_vec(&error_payload)?;
-                             session.write_response_header(Box::new(err_resp.clone()), false).await?;
-                             session.write_response_body(Some(bytes::Bytes::from(body)), true).await?;
-                             Ok((true, Some(HttpResponse::new(err_resp, None))))
-                         }
-                     };
-                 }
-
-                // Apply sampling
-                let is_sampled = rand::thread_rng().gen_range(0.0..1.0) < config_guard.sample_rate;
-                debug!("Request ID {} sampling decision: {}", ctx.request_id, is_sampled);
-
+                // Sample rate check - only process some percentage of requests
+                let is_sampled = rand::thread_rng().gen_bool(config.sample_rate);
+                if !is_sampled {
+                    return Ok((false, None));
+                }
+                
                 // Initialize context data
                 let perf_ctx = PerformancePluginContext::new(is_sampled);
-                ctx.plugins_data.insert(CONTEXT_KEY.to_string(), serde_json::to_value(perf_ctx)?);
-
+                ctx.plugins_data.insert(
+                    "performance_analyzer_context".to_string(),
+                    serde_json::to_value(perf_ctx)?
+                );
+                
+                // Store request info
+                let req_header = session.req_header();
+                ctx.plugins_data.insert(
+                    "performance_analyzer_path".to_string(),
+                    serde_json::Value::String(req_header.uri.path().to_string())
+                );
+                ctx.plugins_data.insert(
+                    "performance_analyzer_method".to_string(),
+                    serde_json::Value::String(req_header.method.to_string())
+                );
+                
                 Ok((false, None))
-            }
+            },
             PluginStep::ProxyUpstream => {
-                 if let Some(perf_ctx_val) = ctx.plugins_data.get_mut(CONTEXT_KEY) {
-                     match serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
-                        Ok(mut perf_ctx) => {
-                             if perf_ctx.is_sampled {
-                                perf_ctx.upstream_request_start_unix_ns = Some(PerformancePluginContext::now_ns());
-                                *perf_ctx_val = serde_json::to_value(perf_ctx)?;
-                                debug!("Marked upstream_request_start for request ID: {}", ctx.request_id);
-                             }
-                         }
-                         Err(e) => error!("Failed to deserialize performance context in ProxyUpstream step: {}", e),
-                     }
-                 }
+                // Mark the end of request processing and start of upstream request
+                if let Some(perf_ctx_val) = ctx.plugins_data.get_mut("performance_analyzer_context") {
+                    if let Ok(mut perf_ctx) = serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
+                        perf_ctx.request_processing_end_unix_ns = Some(PerformancePluginContext::now_ns());
+                        perf_ctx.upstream_request_start_unix_ns = Some(PerformancePluginContext::now_ns());
+                        *perf_ctx_val = serde_json::to_value(perf_ctx)?;
+                    }
+                }
+                
                 Ok((false, None))
-            }
-             _ => Ok((false, None)), // Ignore other steps in handle_request
+            },
+            _ => Ok((false, None))
         }
     }
-
+    
     async fn handle_response(
-        &mut self,
+        &self,
         step: PluginStep,
         session: &mut Session,
         ctx: &mut RouterContext,
-        _upstream_response: &mut ResponseHeader, // We use ctx.upstream_response in Log step
+        upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
-        const CONTEXT_KEY: &str = "performance_analyzer_context";
-        let config_guard = self.config.lock().await;
-
-         if !config_guard.enabled {
+        let config = self.config.lock().await.clone();
+        
+        if !config.enabled {
             return Ok(false);
         }
-
+        
         match step {
             PluginStep::Response => {
-                // Mark upstream response received time
-                 if let Some(perf_ctx_val) = ctx.plugins_data.get_mut(CONTEXT_KEY) {
-                     match serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
-                         Ok(mut perf_ctx) => {
-                             if perf_ctx.is_sampled {
-                                 perf_ctx.upstream_response_received_unix_ns = Some(PerformancePluginContext::now_ns());
-                                 // Mark request processing end approx here (end of filters before upstream)
-                                 perf_ctx.request_processing_end_unix_ns = perf_ctx.upstream_request_start_unix_ns;
-                                 *perf_ctx_val = serde_json::to_value(perf_ctx)?;
-                                 debug!("Marked upstream_response_received for request ID: {}", ctx.request_id);
-                             }
-                         }
-                         Err(e) => error!("Failed to deserialize performance context in Response step: {}", e),
-                     }
-                 }
-                Ok(false) // Don't modify headers here
-            }
+                // Mark the time we received the response
+                if let Some(perf_ctx_val) = ctx.plugins_data.get_mut("performance_analyzer_context") {
+                    if let Ok(mut perf_ctx) = serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
+                        perf_ctx.upstream_response_received_unix_ns = Some(PerformancePluginContext::now_ns());
+                        *perf_ctx_val = serde_json::to_value(perf_ctx)?;
+                    }
+                }
+                
+                // Add performance headers if configured
+                if config.trace_headers {
+                    // Add headers with performance timing data
+                    if let Some(perf_ctx_val) = ctx.plugins_data.get("performance_analyzer_context") {
+                        if let Ok(perf_ctx) = serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
+                            let req_processing_ms = PerformancePluginContext::duration_ms(
+                                Some(perf_ctx.start_time_unix_ns),
+                                perf_ctx.request_processing_end_unix_ns
+                            );
+                            let upstream_latency_ms = PerformancePluginContext::duration_ms(
+                                perf_ctx.upstream_request_start_unix_ns,
+                                perf_ctx.upstream_response_received_unix_ns
+                            );
+                            
+                            upstream_response.insert_header("X-Request-Processing-Time", &req_processing_ms.to_string())?;
+                            upstream_response.insert_header("X-Upstream-Latency", &upstream_latency_ms.to_string())?;
+                        }
+                    }
+                }
+                
+                Ok(true)
+            },
             PluginStep::Log => {
-                // Finalize and store metrics
-                 match self.finalize_metrics(session, ctx, &config_guard).await {
-                     Ok(_) => debug!("Successfully finalized metrics for request ID: {}", ctx.request_id),
-                     Err(e) => error!("Error finalizing metrics for request ID {}: {}", ctx.request_id, e),
-                 }
+                // Finalize metrics for this request
+                if let Err(e) = self.finalize_metrics(session, ctx, &config).await {
+                    error!("Failed to finalize metrics: {}", e);
+                }
+                
+                // Detect hotspots periodically
+                if config.hotspot_detection {
+                    if rand::thread_rng().gen_bool(0.01) { // Run occasionally (1% chance)
+                        tokio::spawn(async move {
+                            let analyzer = PerformanceAnalyzer::default();
+                            if let Err(e) = analyzer.detect_hotspots().await {
+                                error!("Failed to detect hotspots: {}", e);
+                            }
+                        });
+                    }
+                }
+                
                 Ok(false)
-            }
-             _ => Ok(false), // Ignore other steps
+            },
+            _ => Ok(false)
         }
     }
 }
