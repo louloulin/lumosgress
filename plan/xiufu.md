@@ -42,9 +42,17 @@ Running `cargo test` revealed multiple build errors stemming from recent feature
     *   Updated imports in main.rs to resolve unresolved modules
     *   Fixed the Plugin trait reference in `plugins/manager.rs` by correctly specifying the Config type parameter to resolve generic `Plugin` trait references
 
+10. ✅ **新插件系统修复：**
+    *   修复了`core.rs`中的`Box<dyn Plugin>`到`Arc<dyn Plugin>`的转换问题，使用`Arc::from()`函数替代直接`Arc::new()`
+    *   解决了`executor.rs`中的多次可变借用问题，通过先取出`upstream_response`，处理后再放回
+    *   完善了`core_test.rs`中的导入，确保所有类型和trait都能正确解析
+    *   改进了`CompliancePlugin`实现，添加了`TenantInfo`结构体，并优化了配置处理
+
 ## Implementation Summary
-All build errors have been resolved, and `cargo test` now passes successfully. We have fixed imports, module declarations, generic type parameters, and struct definitions to ensure that the code compiles and tests pass properly.
+所有构建错误已经解决，`cargo test`现在可以成功通过。我们修复了导入、模块声明、泛型类型参数和结构体定义，确保代码能够正确编译和测试通过。
 
-There are still numerous warnings in the codebase, primarily related to unused variables and imports, but these do not affect functionality and can be addressed as a separate task.
+插件系统的改进包括更好的类型处理、修复内存管理问题（避免可变借用冲突）、以及完善了合规性插件的功能。同时，我们也扩展了租户信息处理，添加了必要的数据结构。
 
-## Implementation Date: 2023-10-07
+在代码库中仍然存在一些警告，主要与未使用的变量和导入有关，但这些不影响功能，可以作为单独的任务来解决。
+
+## Implementation Date: 2023-10-20

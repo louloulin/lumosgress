@@ -13,6 +13,11 @@ use thiserror::Error;
 
 use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
 
+// 新的插件系统模块
+pub mod core;
+mod core_test;
+pub mod executor;
+
 pub mod basic_auth;
 pub mod jwt;
 pub mod oauth2;
@@ -42,6 +47,11 @@ use ai_analytics::AiAnalytics;
 use ai_request_builder::AiRequestBuilder;
 use prompt_debugger::PromptDebugger;
 use performance_analyzer::PerformanceAnalyzer;
+
+// 重新导出新的插件接口
+pub use core::{Plugin as NewPlugin, PluginType, PluginStep, PluginError as NewPluginError, 
+               PluginFactory, PluginMetadata, PluginRegistry};
+pub use executor::{execute_plugins, initialize_plugins, shutdown_plugins};
 
 pub(crate) struct ProxyPlugins {
     pub basic_auth: Lazy<BasicAuth>,

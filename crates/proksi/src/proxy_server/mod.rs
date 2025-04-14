@@ -9,6 +9,7 @@ pub mod cert_store;
 pub mod http_proxy;
 pub mod https_proxy;
 pub mod middleware;
+pub mod http_response;
 
 /// Default peer options to be used on every upstream connection
 const DEFAULT_PEER_OPTIONS: PeerOptions = PeerOptions {
@@ -39,3 +40,6 @@ const DEFAULT_PEER_OPTIONS: PeerOptions = PeerOptions {
     tracer: None,
     custom_l4: None,
 };
+
+// 重新导出
+pub use http_response::HttpResponse;

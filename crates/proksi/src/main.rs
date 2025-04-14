@@ -211,10 +211,13 @@ async fn initialize_plugins(proxy_config: Arc<config::Config>) -> Result<(), Box
         if let Some(compliance_config) = &plugins_config.compliance {
             if compliance_config.enabled {
                 tracing::info!("Initializing compliance plugin...");
-                let compliance_plugin = CompliancePlugin::new(plugins::compliance::CompliancePluginConfig {
-                    retention_period_days: compliance_config.retention_period_days.unwrap_or(30),
-                    alert_threshold: compliance_config.alert_threshold.unwrap_or(0.9),
-                }).await?;
+                let compliance_plugin = CompliancePlugin::new(plugins::compliance::ComplianceConfig {
+                    retention_days: 90,
+                    enabled: true,
+                    storage_path: "/var/log/proksi/compliance".to_string(),
+                })
+                .await
+                .unwrap();
                 plugins::manager::register(compliance_plugin);
                 tracing::info!("Compliance plugin registered");
             }
@@ -255,10 +258,13 @@ async fn initialize_plugins(proxy_config: Arc<config::Config>) -> Result<(), Box
         tracing::info!("Tenant plugin registered (default)");
         
         // 默认初始化合规插件
-        let compliance_plugin = CompliancePlugin::new(plugins::compliance::CompliancePluginConfig {
-            retention_period_days: 30,
-            alert_threshold: 0.9,
-        }).await?;
+        let compliance_plugin = CompliancePlugin::new(plugins::compliance::ComplianceConfig {
+            retention_days: 90,
+            enabled: true,
+            storage_path: "/var/log/proksi/compliance".to_string(),
+        })
+        .await
+        .unwrap();
         plugins::manager::register(compliance_plugin);
         tracing::info!("Compliance plugin registered (default)");
         

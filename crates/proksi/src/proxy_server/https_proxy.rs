@@ -62,6 +62,13 @@ pub struct RouterContext {
     pub is_websocket: bool,
 
     pub timings: RouterTimings,
+
+    // 新增字段，用于存储上游响应
+    pub upstream_response: Option<ResponseHeader>,
+    // 新增字段，用于存储插件数据
+    pub plugins_data: HashMap<String, serde_json::Value>,
+    // 新增字段，用于存储请求唯一ID
+    pub request_id: String,
 }
 
 pub struct RouterTimings {
@@ -85,6 +92,13 @@ impl ProxyHttp for Router {
             timings: RouterTimings {
                 request_filter_start: std::time::Instant::now(),
             },
+
+            // 新增字段，用于存储上游响应
+            upstream_response: None,
+            // 新增字段，用于存储插件数据
+            plugins_data: HashMap::new(),
+            // 新增字段，用于存储请求唯一ID
+            request_id: String::new(),
         }
     }
 
