@@ -616,9 +616,9 @@ impl Plugin for PromptDebugger {
                         return Ok((false, None));
                     }
                 }
-            }
-            
-            // Handle API requests
+    }
+
+    // Handle API requests
             if path_suffix.starts_with("api/") {
                 match self.handle_api_request(session, path_suffix, &config).await {
                     Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),

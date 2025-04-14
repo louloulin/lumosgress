@@ -187,9 +187,9 @@ impl PerformanceAnalyzer {
 
          if !perf_ctx.is_sampled {
               debug!("Request ID {} was not sampled, skipping metrics finalization.", ctx.request_id);
-              return Ok(());
-         }
-
+            return Ok(());
+        }
+        
          let final_time_ns = PerformancePluginContext::now_ns();
 
          // Calculate durations
@@ -204,12 +204,12 @@ impl PerformanceAnalyzer {
 
          // Extract data
          let request_size = req_header.headers.get("content-length")
-             .and_then(|v| v.to_str().ok())
-             .and_then(|s| s.parse::<usize>().ok())
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<usize>().ok())
              .unwrap_or(0);
 
          let response_size = resp_header.and_then(|h| h.headers.get("content-length")
-             .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.to_str().ok())
              .and_then(|s| s.parse::<usize>().ok()));
 
          let status_code = resp_header.map(|h| h.status.as_u16());
@@ -256,17 +256,17 @@ impl PerformanceAnalyzer {
              status_code,
              client_ip,
              tags: HashMap::new(), // Add relevant tags if needed
-         };
-
-         // Store metrics
+        };
+        
+        // Store metrics
          self.store_metrics(metrics, config).await?; // Call the storage logic
 
          // Optionally run hotspot detection (could be run periodically instead)
          if config.hotspot_detection {
              self.detect_hotspots().await?; // Run detection based on stored metrics
          }
-
-         Ok(())
+        
+        Ok(())
     }
 
     // Store collected metrics based on configuration
@@ -296,7 +296,7 @@ impl PerformanceAnalyzer {
         }
         Ok(())
     }
-
+    
     // Detect performance hotspots based on stored metrics (simplified)
     async fn detect_hotspots(&self) -> Result<()> {
          // Basic hotspot detection logic (example: find slowest paths)
@@ -375,17 +375,17 @@ impl PerformanceAnalyzer {
          let html = format!(r#"
  <!DOCTYPE html>
  <html lang="en">
- <head>
+            <head>
      <meta charset="UTF-8">
      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-     <title>Performance Analyzer</title>
-     <style>
+                <title>Performance Analyzer</title>
+                <style>
          body {{ font-family: sans-serif; padding: 20px; }}
          pre {{ background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }}
          h3 {{ border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 30px; }}
-     </style>
- </head>
- <body>
+                </style>
+            </head>
+            <body>
      <h1>Performance Analyzer</h1>
      <p>Displaying metrics based on configured storage (currently {}). Sampling rate: {}.</p>
      {}
@@ -393,7 +393,7 @@ impl PerformanceAnalyzer {
      <p><a href="{}/api/metrics">View Raw Metrics (JSON)</a></p>
      <p><a href="{}/api/summary">View Summary (JSON)</a></p>
      <p><a href="{}/api/hotspots">View Hotspots (JSON)</a></p>
- </body>
+            </body>
  </html>
          "#,
          storage_desc,
@@ -453,8 +453,8 @@ impl PerformanceAnalyzer {
 
     // Generate summary statistics from collected metrics
     fn generate_summary(&self, metrics: &[RequestMetrics]) -> MetricsSummary {
-         if metrics.is_empty() {
-             return MetricsSummary {
+        if metrics.is_empty() {
+            return MetricsSummary {
                 avg_response_time_ms: 0.0, p50_response_time_ms: 0.0, p90_response_time_ms: 0.0,
                 p95_response_time_ms: 0.0, p99_response_time_ms: 0.0, avg_upstream_latency_ms: 0.0,
                 avg_request_size: 0.0, avg_response_size: 0.0, avg_tokens_input: 0.0,
@@ -483,7 +483,7 @@ impl PerformanceAnalyzer {
             response_times.get(index).copied().unwrap_or(0) as f64
         };
 
-         MetricsSummary {
+        MetricsSummary {
             avg_response_time_ms,
             p50_response_time_ms: percentile(0.50),
             p90_response_time_ms: percentile(0.90),
@@ -597,7 +597,7 @@ impl Plugin for PerformanceAnalyzer {
                 Ok((false, None))
             },
             PluginStep::ProxyUpstream => {
-                // Mark the end of request processing and start of upstream request
+        // Mark the end of request processing and start of upstream request
                 if let Some(perf_ctx_val) = ctx.plugins_data.get_mut("performance_analyzer_context") {
                     if let Ok(mut perf_ctx) = serde_json::from_value::<PerformancePluginContext>(perf_ctx_val.clone()) {
                         perf_ctx.request_processing_end_unix_ns = Some(PerformancePluginContext::now_ns());
