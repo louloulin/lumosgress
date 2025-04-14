@@ -313,8 +313,12 @@ impl Plugin for AiSecurity {
                 SecurityPolicyType::RateLimit => 
                     policy.max_requests.zip(policy.time_window).map_or(false, |(mr, tw)| {
                          // Generate a key for rate limiting (e.g., IP or API Key)
-                         // Using a placeholder IP for now
-                         let ip = session.client_addr().map(|addr| addr.ip().to_string()).unwrap_or_else(|| "unknown_ip".to_string());
+                         // Fix E0599: Use match to get IP from SocketAddr enum
+                         let ip = match session.client_addr() {
+                            Some(pingora::protocols::l4::socket::SocketAddr::Inet(addr)) => addr.ip().to_string(),
+                            Some(pingora::protocols::l4::socket::SocketAddr::Unix(_)) => "unix_socket".to_string(),
+                            None => "unknown_ip".to_string(),
+                         };
                          let user_key = session.req_header().headers.get("x-api-key")
                              .and_then(|k| k.to_str().ok())
                              .unwrap_or(""); // Or retrieve from ctx if stored by auth plugin

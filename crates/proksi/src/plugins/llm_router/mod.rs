@@ -19,11 +19,13 @@ use crate::{
     config::RoutePlugin,
     plugins::get_required_config,
     proxy_server::https_proxy::RouterContext,
+    proxy_server::https_proxy::RouterTimings,
 };
 
 // 支持的LLM提供商
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum LlmProvider {
+    #[default]
     OpenAI,
     Anthropic,
     GoogleVertexAI,
@@ -395,6 +397,10 @@ mod tests {
     use crate::plugins::core::PluginStep;
     use std::env; // For setting env vars in tests
     use http::HeaderMap;
+    use crate::proxy_server::https_proxy::RouterTimings;
+    use pingora::test::mock_session;
+    use http::Response;
+    use http::StatusCode;
 
     // Helper to create a basic RouterContext
     fn create_test_context() -> RouterContext {
@@ -404,7 +410,7 @@ mod tests {
             upstream: Default::default(),
             extensions: HashMap::new(),
             is_websocket: false,
-            timings: Default::default(),
+            timings: RouterTimings::default(),
             upstream_response: None,
             plugins_data: HashMap::new(),
             request_id: String::new(),
@@ -454,7 +460,7 @@ mod tests {
     async fn test_handle_request_step_request_determines_provider() {
         let config = create_sample_config();
         let plugin = LlmRouter::with_config(config);
-        let mut session = Session::new_dummy();
+        let mut session = mock_session().await;
         let mut ctx = create_test_context();
 
         let result = plugin.handle_request(PluginStep::Request, &mut session, &mut ctx).await;
@@ -471,7 +477,7 @@ mod tests {
     async fn test_handle_request_step_proxy_upstream_modifies_headers() {
         let config = create_sample_config();
         let plugin = LlmRouter::with_config(config);
-        let mut session = Session::new_dummy();
+        let mut session = mock_session().await;
         let mut ctx = create_test_context();
         
         // Set provider info from Request step
@@ -502,7 +508,7 @@ mod tests {
     async fn test_handle_response_step_response_adds_header() {
         let config = create_sample_config();
         let plugin = LlmRouter::with_config(config);
-        let mut session = Session::new_dummy();
+        let mut session = mock_session().await;
         let mut ctx = create_test_context();
         let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
         
@@ -521,7 +527,7 @@ mod tests {
     async fn test_handle_response_step_other_does_nothing() {
         let config = create_sample_config();
         let plugin = LlmRouter::with_config(config);
-        let mut session = Session::new_dummy();
+        let mut session = mock_session().await;
         let mut ctx = create_test_context();
         let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
         

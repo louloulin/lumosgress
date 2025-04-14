@@ -86,6 +86,7 @@ pub enum AnomalySeverity {
 }
 
 /// Manages anomaly detection for metrics
+#[derive(Debug)]
 pub struct AnomalyDetector {
     /// Configuration for the detector
     config: AnomalyDetectionConfig,

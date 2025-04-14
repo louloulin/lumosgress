@@ -72,7 +72,15 @@ pub struct RouterContext {
 }
 
 pub struct RouterTimings {
-    request_filter_start: std::time::Instant,
+    // Make this field public if it needs to be accessed by tests, otherwise keep private
+    pub request_filter_start: std::time::Instant, 
+}
+
+// Manually implement Default
+impl Default for RouterTimings {
+    fn default() -> Self {
+        Self { request_filter_start: std::time::Instant::now() }
+    }
 }
 
 #[async_trait]

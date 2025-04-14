@@ -1,17 +1,29 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use async_trait::async_trait;
-use crate::plugins::{Plugin, PluginConfig, PluginError};
+use crate::plugins::{Plugin, PluginError};
 use crate::models::tenant::{Tenant, TenantStatus, ResourceQuota, ResourceUsage};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TenantPluginConfig {
     pub default_quota: ResourceQuota,
     pub isolation_enabled: bool,
 }
 
-impl PluginConfig for TenantPluginConfig {}
+impl Default for TenantPluginConfig {
+    fn default() -> Self {
+        Self {
+            default_quota: ResourceQuota {
+                requests: 1000,
+                tokens: 1000000,
+            },
+            isolation_enabled: false,
+        }
+    }
+}
 
+#[derive(Debug)]
+#[derive(Default)]
 pub struct TenantPlugin {
     config: Arc<TenantPluginConfig>,
     tenants: dashmap::DashMap<String, Tenant>,
@@ -19,15 +31,6 @@ pub struct TenantPlugin {
 
 #[async_trait]
 impl Plugin for TenantPlugin {
-    type Config = TenantPluginConfig;
-
-    async fn new(config: Self::Config) -> Result<Self, PluginError> {
-        Ok(Self {
-            config: Arc::new(config),
-            tenants: dashmap::DashMap::new(),
-        })
-    }
-
     fn name(&self) -> &'static str {
         "tenant"
     }
@@ -48,4 +51,18 @@ impl TenantPlugin {
     }
 
     // 其他租户操作方法...
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::tenant::ResourceQuota;
+
+    #[test]
+    fn test_tenant_plugin_default_config() {
+        let config = TenantPluginConfig::default();
+        assert_eq!(config.default_quota.requests, 1000);
+        assert_eq!(config.default_quota.tokens, 1000000);
+        assert_eq!(config.isolation_enabled, false);
+    }
 } 

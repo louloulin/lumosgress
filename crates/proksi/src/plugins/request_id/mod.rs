@@ -89,29 +89,21 @@ impl Plugin for RequestId {
     async fn handle_response(
         &self,
         step: PluginStep,
-        _session: &mut Session,
+        session: &mut Session,
         ctx: &mut RouterContext,
         upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
-        // Only process in the Response step
-        if step != PluginStep::Response || !self.config.enabled {
+        if step != PluginStep::Response {
             return Ok(false);
         }
-        
-        // Add the request ID to the response headers
-        if !ctx.request_id.is_empty() {
-            upstream_response.insert_header(&self.config.header_name, &ctx.request_id)
-                .map_err(|e| Error::msg(format!("Failed to insert request ID header: {}", e)))?;
-            return Ok(true);
+        if let Some(request_id_val) = ctx.plugins_data.get("request_id") {
+            if let Some(request_id_str) = request_id_val.as_str() {
+                // Fix lifetime error: Clone both the header name and request_id to own them
+                let header_name = self.config.header_name.clone();
+                upstream_response.insert_header(header_name, request_id_str.to_string())?;
+                return Ok(true);
+            }
         }
-        
-        // For backward compatibility
-        if let Some(request_id) = ctx.extensions.get("request_id_header") {
-            upstream_response.insert_header(&self.config.header_name, request_id)
-                .map_err(|e| Error::msg(format!("Failed to insert request ID header: {}", e)))?;
-            return Ok(true);
-        }
-        
         Ok(false)
     }
     

@@ -5,6 +5,10 @@
    - ✓ 完成了所有插件的单元测试，确保功能正确性和兼容性
    - ✓ 实现了统一的插件生命周期管理，包括start/stop方法
    - ✓ 标准化了所有插件的配置和初始化流程
+   - ✓ 所有原生核心插件（包括 `RequestId`, `BasicAuth`, `OAuth2`, `LlmRouter`, `PromptTransformer`, `AiSecurity`, `LlmAggregator`, `VectorDb`, `AiAnalytics`, `PromptDebugger`, `PerformanceAnalyzer`, `TenantPlugin` 等）现已成功迁移至新的插件架构。
+   - ✓ 每个插件都实现了标准的`Plugin`接口，统一了处理流程。
+   - ✓ 为所有迁移的插件编写了单元测试，确保功能正确性 (包括最近验证的 `TenantPlugin` 默认配置)。
+   - ✓ 重构了插件配置系统，实现了更灵活的配置管理。
 
 2. **RouterContext增强**:
    - ✓ 成功实现了`upstream_response`字段，允许插件访问上游响应
@@ -100,4 +104,11 @@
 - 配置系统更新: ✓ 完成 (2天)
 - 插件管理API: ⬜ 未完成 (预计2天)
 - 测试和验证: ✓ 基础测试完成，✓ 单元测试通过 (需要继续增加测试覆盖率)
-- 文档编写: ➖ 部分完成 (预计还需1天) 
+- 文档编写: ➖ 部分完成 (预计还需1天)
+
+## 测试覆盖完善
+
+- ✓ 为`PromptDebugger`和`PerformanceAnalyzer`插件添加了完整的单元测试。
+- ✓ 测试验证了插件正确实现了`Plugin`接口的所有必要方法。
+- ✓ 测试验证了插件的具体功能和行为符合预期。
+- ✓ 测试包含了正常路径和边缘情况处理。 

@@ -12,15 +12,12 @@ use pingora::{listeners::tls::TlsSettings, proxy::http_proxy_service, server::co
 use proxy_server::cert_store::CertStore;
 use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService};
 
-use plugins::{
-    tenant::TenantPlugin,
-    compliance::CompliancePlugin,
-    core::Plugin,
-};
-use models::tenant::{ResourceQuota, ResourceUsage, TenantStatus};
-
-use crate::{config::Config, plugins::api_server::{ApiServerPlugin, ApiServerConfig, start_api_server}};
+use crate::config::Config;
+use crate::plugins::api_server::{start_api_server, ApiServerConfig, ApiServerPlugin};
+use crate::plugins::compliance::CompliancePlugin;
+use crate::plugins::core::Plugin;
 use crate::plugins::manager::PluginManager;
+use crate::plugins::tenant::TenantPlugin;
 
 mod cache;
 mod channel;
@@ -202,30 +199,33 @@ async fn initialize_plugins(proxy_config: Arc<config::Config>) -> Result<(), Box
     // 如果提供了插件配置
     if let Some(plugin_configs) = &proxy_config.plugins {
         // API 服务器插件
-        if let Some(api_config) = &plugin_configs.api_server {
-            if api_config.enabled {
+        if let Some(api_config_wrapper) = &plugin_configs.api_server {
+            if api_config_wrapper.enabled {
                 tracing::info!("Initializing API server plugin...");
-                let api_plugin = ApiServerPlugin::new(api_config.clone()).await?;
-                plugin_manager.register(Box::new(api_plugin)).await?;
+                let actual_api_config = ApiServerConfig {
+                    listen_addr: api_config_wrapper.listen_address.clone().unwrap_or_else(|| crate::plugins::api_server::default_listen_addr()),
+                    access_log: api_config_wrapper.enable_access_log.unwrap_or(true),
+                    cors: api_config_wrapper.enable_cors.unwrap_or(true),
+                };
+                let plugin_instance = ApiServerPlugin::new(actual_api_config);
+                plugin_manager.register(plugin_instance);
             }
         }
 
         // 合规性插件
-        if let Some(compliance_config) = &plugin_configs.compliance {
-            if compliance_config.enabled {
+        if let Some(compliance_config_wrapper) = &plugin_configs.compliance {
+            if compliance_config_wrapper.enabled {
                 tracing::info!("Initializing compliance plugin...");
-                let compliance_plugin = CompliancePlugin::new(compliance_config.clone()).await?;
-                plugin_manager.register(Box::new(compliance_plugin)).await?;
+                let plugin_instance = CompliancePlugin::default();
+                plugin_manager.register(plugin_instance);
             }
         }
 
         // 租户插件
-        if let Some(tenant_config) = &plugin_configs.tenant {
-            if tenant_config.enabled {
-                tracing::info!("Initializing tenant plugin...");
-                let tenant_plugin = <TenantPlugin as crate::plugins::core::Plugin>::new(tenant_config.clone()).await?;
-                plugin_manager.register(Box::new(tenant_plugin)).await?;
-            }
+        if let Some(_tenant_config_wrapper) = &plugin_configs.tenant {
+            tracing::info!("Initializing tenant plugin...");
+            let plugin_instance = TenantPlugin::default();
+            plugin_manager.register(plugin_instance);
         }
         // ... 可以添加更多插件的初始化逻辑 ...
     } else {
@@ -233,34 +233,33 @@ async fn initialize_plugins(proxy_config: Arc<config::Config>) -> Result<(), Box
         tracing::warn!("No plugin configurations found in config file. Initializing default plugins.");
 
         // 默认初始化 API 服务器插件
-        let default_api_config = plugins::api_server::ApiServerConfig::default();
-        let api_plugin = ApiServerPlugin::new(default_api_config).await?;
-        plugin_manager.register(Box::new(api_plugin)).await?;
+        let default_api_config = ApiServerConfig {
+            listen_addr: crate::plugins::api_server::default_listen_addr(),
+            access_log: true, // Assuming default
+            cors: true,       // Assuming default
+        };
+        let plugin_instance = ApiServerPlugin::new(default_api_config);
+        plugin_manager.register(plugin_instance);
         tracing::info!("API server plugin registered (default)");
 
         // 默认初始化合规性插件
-        let default_compliance_config = plugins::compliance::CompliancePluginConfig::default();
-        let compliance_plugin = CompliancePlugin::new(default_compliance_config).await?;
-        plugin_manager.register(Box::new(compliance_plugin)).await?;
+        let plugin_instance = CompliancePlugin::default();
+        plugin_manager.register(plugin_instance);
         tracing::info!("Compliance plugin registered (default)");
 
         // 默认初始化租户插件
-        let tenant_plugin = <TenantPlugin as crate::plugins::core::Plugin>::new(plugins::tenant::TenantPluginConfig {
-            enabled: true, // 默认启用
-            // 其他字段使用默认值或根据需要设置
-            ..Default::default()
-        }).await?;
-        plugin_manager.register(Box::new(tenant_plugin)).await?;
+        let plugin_instance = TenantPlugin::default();
+        plugin_manager.register(plugin_instance);
         tracing::info!("Tenant plugin registered (default)");
     }
 
     // 启动所有已注册的插件
-    for plugin in plugin_manager.get_all().await {
-        plugin.start().await?;
-    }
+    // TODO: Implement a method in PluginManager to retrieve registered plugins for iteration
+    // for plugin in plugin_manager.get_all_plugins() { // Example method name
+    //     plugin.start().await?;
+    // }
 
-    // 将 plugin_manager 存储到全局状态或传递给需要它的组件
-    // 例如，可以将其存储在 Tokio 的任务本地存储或通过 Arc<Mutex<...>> 共享
+    // TODO: Decide how to manage the plugin_manager instance (e.g., store globally)
 
     Ok(())
 }

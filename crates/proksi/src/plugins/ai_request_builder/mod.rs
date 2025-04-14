@@ -599,7 +599,7 @@ impl Plugin for AiRequestBuilder {
             info!("Serving AiRequestBuilder UI for path: {}", req_path);
              match self.serve_ui(session, ctx, &config).await {
                  Ok(response_header) => Ok((true, Some(HttpResponse::new(
-                     response_header.status_code, 
+                     response_header.status, 
                      response_header.headers.clone(), 
                      bytes::Bytes::new()
                  )))),
@@ -608,7 +608,7 @@ impl Plugin for AiRequestBuilder {
                      let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
                      session.write_response_header(Box::new(err_resp.clone()), true).await?;
                      Ok((true, Some(HttpResponse::new(
-                         err_resp.status_code,
+                         err_resp.status,
                          err_resp.headers.clone(),
                          bytes::Bytes::new()
                      ))))
@@ -619,7 +619,7 @@ impl Plugin for AiRequestBuilder {
              info!("Handling AiRequestBuilder API request for path suffix: {}", path_suffix);
               match self.handle_api_request(session, ctx, path_suffix, &config).await {
                   Ok(response_header) => Ok((true, Some(HttpResponse::new(
-                      response_header.status_code,
+                      response_header.status,
                       response_header.headers.clone(),
                       bytes::Bytes::new()
                   )))),
@@ -633,7 +633,7 @@ impl Plugin for AiRequestBuilder {
                      session.write_response_header(Box::new(err_resp.clone()), false).await?;
                      session.write_response_body(Some(bytes::Bytes::from(err_body)), true).await?;
                      Ok((true, Some(HttpResponse::new(
-                         err_resp.status_code,
+                         err_resp.status,
                          err_resp.headers.clone(),
                          bytes::Bytes::new()
                      ))))

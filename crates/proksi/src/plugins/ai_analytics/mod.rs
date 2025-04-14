@@ -13,6 +13,7 @@ use once_cell::sync::Lazy;
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::http::StatusCode;
 use bytes;
+use std::fmt::Debug;
 
 use crate::{
     config::RoutePlugin,
@@ -90,7 +91,7 @@ pub struct AiAnalytics {
 }
 
 #[async_trait]
-trait AnalyticsStorage: Send + Sync {
+trait AnalyticsStorage: Send + Sync + Debug {
     async fn store_metric(&mut self, metric: AnalyticsMetric) -> Result<()>;
     async fn get_metrics(&self, metric_name: &str, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Vec<AnalyticsMetric>>;
     async fn get_aggregated_metrics(&self, metric_name: &str, start_time: DateTime<Utc>, end_time: DateTime<Utc>, aggregation: AggregationType) -> Result<Vec<AnalyticsMetric>>;
@@ -476,6 +477,7 @@ impl Plugin for AiAnalytics {
     }
 }
 
+#[derive(Debug)]
 struct InMemoryStorage {
     metrics: HashMap<String, Vec<AnalyticsMetric>>,
 }
@@ -560,6 +562,7 @@ impl AnalyticsStorage for InMemoryStorage {
     }
 }
 
+#[derive(Debug)]
 struct RedisStorage {
     config: AiAnalyticsConfig,
 }
@@ -585,6 +588,7 @@ impl AnalyticsStorage for RedisStorage {
     }
 }
 
+#[derive(Debug)]
 struct PostgresStorage {
     config: AiAnalyticsConfig,
 }
@@ -610,6 +614,7 @@ impl AnalyticsStorage for PostgresStorage {
     }
 }
 
+#[derive(Debug)]
 struct CustomStorage {
     config: AiAnalyticsConfig,
 }

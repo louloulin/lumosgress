@@ -41,7 +41,7 @@ pub struct ApiServerConfig {
     pub cors: bool,
 }
 
-fn default_listen_addr() -> String {
+pub fn default_listen_addr() -> String {
     "127.0.0.1:8080".to_string()
 }
 

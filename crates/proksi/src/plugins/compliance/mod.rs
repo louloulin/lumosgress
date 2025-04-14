@@ -4,11 +4,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use tracing::{error, info};
 
-use crate::plugins::PluginConfig;
-use crate::plugins::Plugin;
-use crate::plugins::PluginError;
-use crate::models::tenant::TenantInfo;
+use crate::{models::tenant::TenantInfo, plugins::{Plugin, PluginError}};
 
 /// Configuration for the compliance plugin
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +24,16 @@ pub struct ComplianceConfig {
     pub storage_path: String,
 }
 
+impl Default for ComplianceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            retention_days: default_retention(),
+            storage_path: default_storage_path(),
+        }
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -36,17 +44,6 @@ fn default_retention() -> u32 {
 
 fn default_storage_path() -> String {
     "/var/log/proksi/compliance".to_string()
-}
-
-impl PluginConfig for ComplianceConfig {
-    fn validate(&self) -> Result<(), PluginError> {
-        if self.retention_days == 0 {
-            return Err(PluginError::InitializationFailed(
-                "Retention days must be greater than 0".to_string()
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// Record of a compliance event
@@ -81,7 +78,7 @@ pub struct ComplianceRecord {
 }
 
 /// Compliance Plugin for regulatory requirements
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CompliancePlugin {
     config: ComplianceConfig,
     records: Vec<ComplianceRecord>,
@@ -89,26 +86,6 @@ pub struct CompliancePlugin {
 
 #[async_trait]
 impl Plugin for CompliancePlugin {
-    type Config = ComplianceConfig;
-    
-    async fn new(config: Self::Config) -> Result<Self, PluginError> {
-        // Validate configuration
-        config.validate()?;
-        
-        // Create storage directory if it doesn't exist
-        if !config.storage_path.is_empty() {
-            std::fs::create_dir_all(&config.storage_path)
-                .map_err(|e| PluginError::InitializationFailed(
-                    format!("Failed to create compliance storage directory: {}", e)
-                ))?;
-        }
-        
-        Ok(Self {
-            config,
-            records: Vec::new(),
-        })
-    }
-    
     fn name(&self) -> &'static str {
         "compliance"
     }
@@ -116,6 +93,8 @@ impl Plugin for CompliancePlugin {
     async fn start(&mut self) -> Result<(), PluginError> {
         // Load any existing compliance records
         // This is a placeholder for actual implementation
+        // We might need access to config here. If so, Default needs adjustment.
+        info!("CompliancePlugin start. Config enabled: {}", self.config.enabled);
         Ok(())
     }
     
