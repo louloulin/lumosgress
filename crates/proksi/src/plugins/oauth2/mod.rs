@@ -8,12 +8,16 @@ use http::StatusCode;
 use once_cell::sync::Lazy;
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::proxy::Session;
+use serde::{Deserialize, Serialize};
 
 use provider::{OauthType, OauthUser, Provider};
 
-use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
+use crate::proxy_server::https_proxy::RouterContext;
+use crate::proxy_server::HttpResponse;
+use crate::plugins::core::{Plugin, PluginError, PluginStep};
 
-use super::{get_required_config, jwt};
+use super::get_required_config;
+use super::jwt;
 
 // New providers can be added here
 mod github;
@@ -38,12 +42,51 @@ fn get_current_timestamp() -> u64 {
         .as_secs()
 }
 
+/// Configuration for OAuth2 plugin
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OAuth2Config {
+    /// Provider type (github, workos, etc.)
+    pub provider: String,
+    
+    /// Client ID from OAuth provider
+    pub client_id: String,
+    
+    /// Client secret from OAuth provider 
+    pub client_secret: String,
+    
+    /// JWT secret for signing cookies
+    #[serde(default = "default_jwt_secret")]
+    pub jwt_secret: String,
+    
+    /// Redirect URL after successful authentication
+    #[serde(default)]
+    pub redirect_url: Option<String>,
+    
+    /// Additional validations
+    #[serde(default)]
+    pub validations: Option<serde_json::Value>,
+    
+    /// Whether to enable this plugin
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_jwt_secret() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// The Oauth2 plugin
 /// This plugin is responsible for handling Oauth authentication and authorization
 /// It can be used to authenticate users against various Oauth providers
 /// and authorize them to access specific resources or perform certain actions
 /// based on their authorization level.
+#[derive(Debug)]
 pub struct Oauth2 {
+    config: Option<OAuth2Config>,
     short_crypt: short_crypt::ShortCrypt,
 }
 
@@ -52,7 +95,19 @@ impl Oauth2 {
         // Generates in-memory secret for oauth2 states
         let short_crypt = short_crypt::ShortCrypt::new(uuid::Uuid::new_v4().to_string());
 
-        Self { short_crypt }
+        Self { 
+            config: None,
+            short_crypt 
+        }
+    }
+    
+    pub fn with_config(config: OAuth2Config) -> Self {
+        let short_crypt = short_crypt::ShortCrypt::new(uuid::Uuid::new_v4().to_string());
+        
+        Self {
+            config: Some(config),
+            short_crypt
+        }
     }
 
     /// Checks if the user is authorized to access the protected Oauth2 resource
@@ -170,45 +225,128 @@ impl Oauth2 {
             _ => bail!("Provider not found in the plugin configuration"),
         }
     }
+    
+    /// Process the OAuth2 authentication request
+    async fn process_oauth(&self, session: &mut Session, plugin_config: &HashMap<Cow<'static, str>, serde_json::Value>) -> Result<bool> {
+        let provider_type = Self::parse_provider(plugin_config)?;
+        let client_id = get_required_config(plugin_config, "client_id")?;
+        let client_secret = get_required_config(plugin_config, "client_secret")?;
+        let jwt_secret = plugin_config
+            .get("jwt_secret")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        let valdiations = plugin_config.get("validations");
+
+        let is_callback = session
+            .req_header()
+            .uri
+            .query()
+            .map_or(false, |q| q.contains("code="));
+
+        // This is a callback from the Oauth provider
+        if is_callback {
+            // process the callback
+            // TO BE IMPLEMENTED
+            return Ok(false);
+        }
+
+        // Check if the user already has a valid cookie
+        let is_cookie_ok = self
+            .validate_cookie(session, &jwt_secret, valdiations)
+            .await?;
+
+        // User is authenticated with cookie
+        if is_cookie_ok {
+            return Ok(false);
+        }
+
+        // No valid cookie, redirect to Oauth provider
+        let oauth_provider = match provider_type {
+            OauthType::Github => github::Provider::new(&client_id, &client_secret),
+            OauthType::Workos => workos::Provider::new(&client_id, &client_secret),
+        };
+
+        // No cookie or the cookie is invalid
+        // Redirect to Oauth callback
+        self.redirect_to_oauth_callback(session, &oauth_provider).await
+    }
 }
 
-/* // Commented out outdated implementation
 #[async_trait]
-impl MiddlewarePlugin for Oauth2 {
-    async fn request_filter(
+impl Plugin for Oauth2 {
+    fn name(&self) -> &'static str {
+        "oauth2"
+    }
+    
+    async fn handle_request(
         &self,
+        step: PluginStep,
         session: &mut Session,
         ctx: &mut RouterContext,
-        plugin: &RoutePlugin,
-    ) -> anyhow::Result<bool> {
-        // ... implementation ...
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        // Only process in the EarlyRequest step
+        if step != PluginStep::EarlyRequest {
+            return Ok((false, None));
+        }
+        
+        // If no config is provided, or plugin is disabled, skip
+        let Some(config) = &self.config else {
+            return Ok((false, None));
+        };
+        
+        if !config.enabled {
+            return Ok((false, None));
+        }
+        
+        // Convert config to HashMap for compatibility with existing code
+        let mut plugin_config = HashMap::new();
+        plugin_config.insert(Cow::Borrowed("provider"), serde_json::to_value(&config.provider).unwrap());
+        plugin_config.insert(Cow::Borrowed("client_id"), serde_json::to_value(&config.client_id).unwrap());
+        plugin_config.insert(Cow::Borrowed("client_secret"), serde_json::to_value(&config.client_secret).unwrap());
+        plugin_config.insert(Cow::Borrowed("jwt_secret"), serde_json::to_value(&config.jwt_secret).unwrap());
+        
+        if let Some(validations) = &config.validations {
+            plugin_config.insert(Cow::Borrowed("validations"), validations.clone());
+        }
+        
+        if let Some(redirect_url) = &config.redirect_url {
+            plugin_config.insert(Cow::Borrowed("redirect_url"), serde_json::to_value(redirect_url).unwrap());
+        }
+        
+        // Process the OAuth request
+        match self.process_oauth(session, &plugin_config).await {
+            Ok(true) => Ok((true, None)), // OAuth processing handled the request
+            Ok(false) => Ok((false, None)), // Continue with normal request processing
+            Err(e) => {
+                // In case of error, return unauthorized
+                let response = HttpResponse {
+                    status_code: StatusCode::UNAUTHORIZED,
+                    headers: http::HeaderMap::new(),
+                    body: format!("OAuth error: {}", e).into(),
+                };
+                Ok((true, Some(response)))
+            }
+        }
     }
-
-    async fn upstream_request_filter(
+    
+    async fn handle_response(
         &self,
-        _: &mut Session,
-        _: &mut RequestHeader,
-        _: &mut RouterContext,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn response_filter(
-        &self,
-        _: &mut Session,
-        _: &mut RouterContext,
-        _: &RoutePlugin,
-    ) -> anyhow::Result<bool> {
+        _step: PluginStep,
+        _session: &mut Session,
+        _ctx: &mut RouterContext,
+        _upstream_response: &mut ResponseHeader,
+    ) -> Result<bool> {
+        // No response handling needed
         Ok(false)
     }
-
-    fn upstream_response_filter(
-        &self,
-        _: &mut Session,
-        _: &mut ResponseHeader,
-        _: &mut RouterContext,
-    ) -> anyhow::Result<()> {
+    
+    async fn start(&mut self) -> Result<(), PluginError> {
+        Ok(())
+    }
+    
+    async fn stop(&mut self) -> Result<(), PluginError> {
         Ok(())
     }
 }
-*/

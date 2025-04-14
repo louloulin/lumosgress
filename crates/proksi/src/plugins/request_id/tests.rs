@@ -1,37 +1,25 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::collections::HashMap;
     
-    use async_trait::async_trait;
     use pingora::http::ResponseHeader;
     use pingora::proxy::Session;
     
     use crate::plugins::core::{Plugin, PluginStep};
+    use crate::plugins::request_id::{RequestId, RequestIdConfig};
     use crate::proxy_server::https_proxy::RouterContext;
-    use crate::proxy_server::router::RouteStoreContainer;
-    use crate::route::{RouteStore, RouteUpstream};
-    
-    use super::{RequestId, RequestIdConfig};
     
     // 创建测试用的RouterContext
     fn create_test_context() -> RouterContext {
-        let route_store = RouteStore::default();
-        let route_store_container = RouteStoreContainer {
-            store: Arc::new(route_store),
-            plugins: Vec::new(),
-        };
-        
-        let upstream = RouteUpstream::default();
-        
         RouterContext {
             host: "test.example.com".to_string(),
-            route_container: route_store_container,
-            upstream,
-            extensions: std::collections::HashMap::new(),
+            route_container: Default::default(),
+            upstream: Default::default(),
+            extensions: HashMap::new(),
             is_websocket: false,
             timings: Default::default(),
             upstream_response: None,
-            plugins_data: std::collections::HashMap::new(),
+            plugins_data: HashMap::new(),
             request_id: String::new(),
         }
     }

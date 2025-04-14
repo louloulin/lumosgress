@@ -16,8 +16,8 @@ use super::core::{Plugin, PluginStep, PluginError, PluginMetadata, PluginType};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BasicAuthConfig {
-    user: String,
-    pass: String,
+    pub user: String,
+    pub pass: String,
 }
 
 #[derive(Clone)]

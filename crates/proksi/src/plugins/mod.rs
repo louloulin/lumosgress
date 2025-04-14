@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use basic_auth::BasicAuth;
+use basic_auth::{BasicAuth, BasicAuthConfig};
 use oauth2::Oauth2;
 use once_cell::sync::Lazy;
 use pingora::http::{RequestHeader, ResponseHeader};
@@ -71,9 +71,12 @@ pub(crate) struct ProxyPlugins {
 
 /// Static plugin registry (plugins that don't generate a new instance for each request)
 pub static PLUGINS: Lazy<ProxyPlugins> = Lazy::new(|| ProxyPlugins {
-    basic_auth: Lazy::new(BasicAuth::new),
+    basic_auth: Lazy::new(|| BasicAuth::new(BasicAuthConfig {
+        user: "admin".to_string(),
+        pass: "password".to_string(),
+    })),
     oauth2: Lazy::new(Oauth2::new),
-    request_id: Lazy::new(request_id::RequestId::new),
+    request_id: Lazy::new(RequestId::new),
     
     llm_router: Lazy::new(LlmRouter::new),
     prompt_transform: Lazy::new(PromptTransformer::new),

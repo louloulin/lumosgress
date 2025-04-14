@@ -19,6 +19,10 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
+// Import new Plugin trait and related types
+use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::proxy_server::HttpResponse;
+
 // 安全策略类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SecurityPolicyType {
@@ -76,6 +80,8 @@ pub enum SecurityAction {
     Sanitize,  // 尝试清理
 }
 
+// Add Debug derive
+#[derive(Debug)]
 pub struct AiSecurity {
     pub config: Arc<HashMap<String, AiSecurityConfig>>,
     // 可以添加缓存来存储请求计数器等
@@ -343,72 +349,41 @@ impl AiSecurity {
     }
 }
 
-/* // Commented out outdated implementation
+// Add new Plugin trait implementation structure
 #[async_trait]
-impl MiddlewarePlugin for AiSecurity {
-    async fn request_filter(
-        &self,
-        session: &mut Session,
-        state: &mut RouterContext,
-        config: &RoutePlugin,
-    ) -> Result<bool> {
-        // 获取插件配置
-        let config_data = config.config.as_ref().ok_or_else(|| anyhow!("AI Security plugin requires configuration"))?;
-        
-        // 获取配置名
-        let config_name = get_required_config(config_data, "config_name").unwrap_or_else(|_| "default".to_string());
-        
-        // 检查之前是否已确定LLM提供商
-        let provider = state.extensions.get(&Cow::Borrowed("llm_provider"))
-            .map(|s| s.as_str());
-        
-        // 进行安全检查
-        if let Some((status, message)) = self.process_security_checks(session, &config_name, provider).await? {
-            // 如果检查不通过，返回错误响应
-            let response_str = format!("{{\"error\":\"{}\" }}", message);
-            
-            // 直接使用session的respond方法返回错误
-            let status_code = http::StatusCode::from_u16(status.as_u16()).unwrap_or(http::StatusCode::BAD_REQUEST);
-            session.respond_error(status_code.as_u16() as u16).await?;
-            
-            return Ok(true);
-        }
-        
-        // 继续处理请求
-        Ok(false)
+impl Plugin for AiSecurity {
+    fn name(&self) -> &'static str {
+        "ai_security"
     }
 
-    async fn upstream_request_filter(
+    async fn handle_request(
         &self,
+        _step: PluginStep,
         _session: &mut Session,
-        _upstream_request: &mut RequestHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // 安全检查已在request_filter中完成，这里无需额外操作
-        Ok(())
+        _ctx: &mut RouterContext,
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        // Logic to be implemented here, especially for Request step
+        Ok((false, None))
     }
 
-    async fn response_filter(
+    async fn handle_response(
         &self,
+        _step: PluginStep,
         _session: &mut Session,
-        _state: &mut RouterContext,
-        _config: &RoutePlugin,
-    ) -> Result<bool> {
-        // 响应无需处理
-        Ok(false)
-    }
-
-    fn upstream_response_filter(
-        &self,
-        _session: &mut Session,
+        _ctx: &mut RouterContext,
         _upstream_response: &mut ResponseHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // 响应无需处理
-        Ok(())
+    ) -> Result<bool> {
+        Ok(false) // No response modification needed
+    }
+
+    async fn start(&mut self) -> Result<(), PluginError> {
+        Ok(()) // No specific start logic needed yet
+    }
+
+    async fn stop(&mut self) -> Result<(), PluginError> {
+        Ok(()) // No specific stop logic needed yet
     }
 }
-*/
 
 // 在静态注册表中注册插件
 pub static AI_SECURITY: Lazy<AiSecurity> = Lazy::new(AiSecurity::new);

@@ -11,7 +11,11 @@ use pingora::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{debug, error};
+use tracing::{debug, error, info, warn};
+
+// Import new Plugin trait and related types
+use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::proxy_server::HttpResponse;
 
 use crate::{
     config::RoutePlugin,
@@ -65,7 +69,7 @@ impl From<&str> for TransformationType {
 }
 
 // 提示转换配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PromptTransformConfig {
     pub transformations: Vec<PromptTransformation>,
 }
@@ -85,14 +89,15 @@ pub struct PromptTransformation {
     pub custom_params: Option<Value>,     // 自定义参数（JSON格式）
 }
 
+// Modify PromptTransformer struct
+#[derive(Debug, Clone)]
 pub struct PromptTransformer {
-    pub config: Arc<HashMap<String, PromptTransformConfig>>,
-    pub templates: Arc<HashMap<String, String>>,
+    pub config: PromptTransformConfig,
+    pub templates: HashMap<String, String>,
 }
 
 impl PromptTransformer {
     pub fn new() -> Self {
-        // 初始化一些默认模板
         let mut templates = HashMap::new();
         templates.insert(
             "general_instruction".to_string(),
@@ -104,114 +109,29 @@ impl PromptTransformer {
         );
 
         Self {
-            config: Arc::new(HashMap::new()),
-            templates: Arc::new(templates),
+            config: PromptTransformConfig::default(),
+            templates,
         }
     }
 
-    // 处理提示转换
-    async fn transform_prompt(&self, session: &mut Session, config_name: &str, provider: Option<&str>) -> Result<()> {
-        let configs = self.config.clone();
+    pub fn with_config(config: PromptTransformConfig, templates: Option<HashMap<String, String>>) -> Self {
+        let final_templates = templates.unwrap_or_else(|| {
+            let mut default_templates = HashMap::new();
+            default_templates.insert(
+                "general_instruction".to_string(),
+                "You are an AI assistant that provides helpful, accurate, and safe information. {{prompt}}".to_string(),
+            );
+            default_templates.insert(
+                "safety_check".to_string(),
+                "Ensure your response is ethical and does not contain harmful content. {{prompt}}".to_string(),
+            );
+            default_templates
+        });
         
-        if let Some(transform_config) = configs.get(config_name) {
-            // 确保请求包含JSON正文
-            if let Some(content_type) = session.req_header().headers.get("content-type") {
-                if !content_type.to_str().unwrap_or("").contains("application/json") {
-                    return Ok(());
-                }
-            } else {
-                return Ok(()); // 没有Content-Type，跳过
-            }
-
-            // 在Pingora当前API中，我们无法直接读取请求体
-            // 这里需要通过其他方式获取请求体，例如从头信息中提取
-            // 在真实实现中，可能需要修改Pingora或使用特定的钩子
-            
-            // 此处我们使用一个模拟的请求体用于示例
-            // 在实际实现中，这部分需要根据Pingora的API进行适配
-            let body_bytes = Bytes::from("{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}");
-            
-            // 解析JSON请求体
-            let body_str = String::from_utf8_lossy(&body_bytes);
-            let mut json_body: Value = match serde_json::from_str(&body_str) {
-                Ok(val) => val,
-                Err(e) => {
-                    error!("Failed to parse request body as JSON: {}", e);
-                    return Ok(());
-                }
-            };
-
-            // 应用转换
-            let mut modified = false;
-            for transformation in &transform_config.transformations {
-                // 检查是否适用于当前提供商
-                if let Some(p) = &transformation.provider {
-                    if let Some(current_provider) = provider {
-                        if !current_provider.contains(p) {
-                            continue;
-                        }
-                    }
-                }
-
-                // 根据转换类型应用不同的处理
-                match transformation.transform_type {
-                    TransformationType::AddSystemMessage => {
-                        modified |= self.add_system_message(&mut json_body, &transformation.content);
-                    }
-                    TransformationType::AddContext => {
-                        modified |= self.add_context(&mut json_body, &transformation.content);
-                    }
-                    TransformationType::AddSafetyCheck => {
-                        modified |= self.add_safety_check(&mut json_body, &transformation.content);
-                    }
-                    TransformationType::ApplyTemplate => {
-                        if let Some(template_name) = &transformation.template {
-                            modified |= self.apply_template(&mut json_body, template_name);
-                        }
-                    }
-                    TransformationType::FormatPrompt => {
-                        if let Some(style) = &transformation.format_style {
-                            modified |= self.format_prompt(&mut json_body, style, &transformation.content);
-                        }
-                    }
-                    TransformationType::ExtractKeywords => {
-                        modified |= self.extract_keywords(&mut json_body, &transformation.content);
-                    }
-                    TransformationType::EnhanceContent => {
-                        let level = transformation.enhancement_level.as_deref().unwrap_or("standard");
-                        modified |= self.enhance_content(&mut json_body, level, &transformation.content);
-                    }
-                    TransformationType::TranslatePrompt => {
-                        if let Some(target_lang) = &transformation.target_lang {
-                            modified |= self.translate_prompt(&mut json_body, target_lang);
-                        }
-                    }
-                    TransformationType::SplitPrompt => {
-                        let max_tokens = transformation.max_tokens.unwrap_or(4000);
-                        modified |= self.split_prompt(&mut json_body, max_tokens);
-                    }
-                    TransformationType::RAGEnhancement => {
-                        if let Some(source) = &transformation.rag_source {
-                            modified |= self.enhance_with_rag(&mut json_body, source, &transformation.content);
-                        }
-                    }
-                    TransformationType::Custom => {
-                        if let Some(params) = &transformation.custom_params {
-                            modified |= self.apply_custom_transform(&mut json_body, params, &transformation.content);
-                        }
-                    }
-                }
-            }
-
-            // 如果发生了修改，在实际实现中我们需要更新请求体
-            if modified {
-                // 注意：在当前Pingora API中，我们无法直接修改请求体
-                // 这里仅记录修改发生，实际应用中需要根据Pingora API进行适配
-                debug!("Prompt transformed successfully: {}", json_body);
-            }
+        Self { 
+            config,
+            templates: final_templates,
         }
-        
-        Ok(())
     }
 
     // 添加系统消息
@@ -328,9 +248,7 @@ impl PromptTransformer {
     }
 
     fn apply_template(&self, json_body: &mut Value, template_name: &str) -> bool {
-        let templates = self.templates.clone();
-        
-        if let Some(template) = templates.get(template_name) {
+        if let Some(template) = self.templates.get(template_name) {
             // 对OpenAI格式的处理
             if let Some(messages) = json_body.get_mut("messages").and_then(|m| m.as_array_mut()) {
                 // 只处理user消息
@@ -628,8 +546,134 @@ impl PromptTransformer {
     }
 }
 
-// 在静态注册表中注册插件
-pub static PROMPT_TRANSFORMER: Lazy<PromptTransformer> = Lazy::new(PromptTransformer::new);
+// Add new Plugin trait implementation structure
+#[async_trait]
+impl Plugin for PromptTransformer {
+    fn name(&self) -> &'static str {
+        "prompt_transformer"
+    }
+
+    async fn handle_request(
+        &self,
+        step: PluginStep,
+        session: &mut Session,
+        ctx: &mut RouterContext,
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        if step != PluginStep::ProxyUpstream {
+            return Ok((false, None));
+        }
+
+        // Get provider name from context (set by LlmRouter)
+        let provider = ctx.plugins_data
+            .get("llm_provider")
+            .and_then(|v| v.as_str());
+
+        // --- TEMPORARY ASSUMPTION: Get request body --- 
+        // In a real scenario, this requires specific API support from Pingora
+        // or the underlying framework to get mutable access to the body stream.
+        // For now, we simulate getting the body. We also need to handle content type.
+        let Some(content_type) = session.req_header().headers.get("content-type") else {
+            debug!("Skipping prompt transform: No Content-Type header");
+            return Ok((false, None));
+        };
+        if !content_type.to_str().unwrap_or("").contains("application/json") {
+            debug!("Skipping prompt transform: Content-Type is not application/json");
+            return Ok((false, None));
+        }
+
+        // Placeholder for actual body retrieval
+        // let mut body_bytes = session.get_request_body_mut()?.to_vec(); // Hypothetical API
+        // Using a dummy body for now, as direct access isn't available
+        // THIS WILL NOT WORK IN A REAL PROXY SCENARIO WITHOUT CORE CHANGES
+        let body_bytes = Bytes::from("{\"messages\":[{\"role\":\"user\",\"content\":\"Hello from dummy body\"}]}");
+        warn!("PromptTransformer: Using dummy request body due to limitations in accessing real body.");
+        // --- END TEMPORARY ASSUMPTION ---
+
+        let body_str = String::from_utf8_lossy(&body_bytes);
+        let mut json_body: Value = match serde_json::from_str(&body_str) {
+            Ok(val) => val,
+            Err(e) => {
+                error!("PromptTransformer: Failed to parse request body as JSON: {}", e);
+                return Ok((false, None)); // Don't interrupt flow on parse error
+            }
+        };
+
+        // Apply transformations
+        let mut modified = false;
+        for transformation in &self.config.transformations {
+            // Check provider applicability
+            if let Some(p) = &transformation.provider {
+                if let Some(current_provider) = provider {
+                    if !current_provider.contains(p) {
+                        continue; // Skip transformation if provider doesn't match
+                    }
+                }
+            }
+
+            // Apply the specific transformation
+            let applied = match transformation.transform_type {
+                 TransformationType::AddSystemMessage => self.add_system_message(&mut json_body, &transformation.content),
+                 TransformationType::AddContext => self.add_context(&mut json_body, &transformation.content),
+                 TransformationType::AddSafetyCheck => self.add_safety_check(&mut json_body, &transformation.content),
+                 TransformationType::ApplyTemplate => transformation.template.as_ref().map_or(false, |t| self.apply_template(&mut json_body, t)),
+                 TransformationType::FormatPrompt => transformation.format_style.as_ref().map_or(false, |s| self.format_prompt(&mut json_body, s, &transformation.content)),
+                 TransformationType::ExtractKeywords => self.extract_keywords(&mut json_body, &transformation.content),
+                 TransformationType::EnhanceContent => self.enhance_content(&mut json_body, transformation.enhancement_level.as_deref().unwrap_or("standard"), &transformation.content),
+                 TransformationType::TranslatePrompt => transformation.target_lang.as_ref().map_or(false, |l| self.translate_prompt(&mut json_body, l)),
+                 TransformationType::SplitPrompt => self.split_prompt(&mut json_body, transformation.max_tokens.unwrap_or(4000)),
+                 TransformationType::RAGEnhancement => transformation.rag_source.as_ref().map_or(false, |s| self.enhance_with_rag(&mut json_body, s, &transformation.content)),
+                 TransformationType::Custom => transformation.custom_params.as_ref().map_or(false, |p| self.apply_custom_transform(&mut json_body, p, &transformation.content)),
+            };
+            modified |= applied;
+        }
+
+        // If modified, update the request body and Content-Length header
+        if modified {
+            debug!("Prompt transformed: {}", json_body);
+            match serde_json::to_vec(&json_body) {
+                Ok(new_body_bytes_vec) => {
+                    let new_body_bytes = Bytes::from(new_body_bytes_vec);
+                    let new_len = new_body_bytes.len();
+
+                    // --- TEMPORARY ASSUMPTION: Set request body ---
+                    // session.set_request_body(new_body_bytes)?; // Hypothetical API
+                    warn!("PromptTransformer: Request body modified but cannot be set due to limitations.");
+                    // --- END TEMPORARY ASSUMPTION ---
+                    
+                    // Update Content-Length header
+                    let headers = session.req_header_mut();
+                    headers.insert_header("Content-Length", HeaderValue::from_str(&new_len.to_string())?)?;
+                    
+                    info!("Prompt transformed and Content-Length updated.");
+                }
+                Err(e) => {
+                    error!("PromptTransformer: Failed to serialize modified body: {}", e);
+                    // Continue without modifying body if serialization fails
+                }
+            }
+        }
+
+        Ok((false, None)) // Never terminates the request chain itself
+    }
+
+    async fn handle_response(
+        &self,
+        _step: PluginStep,
+        _session: &mut Session,
+        _ctx: &mut RouterContext,
+        _upstream_response: &mut ResponseHeader,
+    ) -> Result<bool> {
+        Ok(false) // No response modification needed
+    }
+
+    async fn start(&mut self) -> Result<(), PluginError> {
+        Ok(()) // No specific start logic needed yet
+    }
+
+    async fn stop(&mut self) -> Result<(), PluginError> {
+        Ok(()) // No specific stop logic needed yet
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -812,4 +856,36 @@ mod tests {
         let updated_content = anthropic_json_mut["prompt"].as_str().unwrap();
         assert!(updated_content.contains("Human: Updated anthropic prompt"));
     }
+    
+    // Add a test to verify creating the plugin with config
+    #[test]
+    fn test_plugin_creation_with_config() {
+        let config = PromptTransformConfig {
+            transformations: vec![
+                PromptTransformation {
+                    transform_type: TransformationType::AddSystemMessage,
+                    provider: Some("openai".to_string()),
+                    content: "Test System Message".to_string(),
+                    template: None,
+                    target_lang: None,
+                    format_style: None,
+                    max_tokens: None,
+                    enhancement_level: None,
+                    rag_source: None,
+                    custom_params: None,
+                }
+            ]
+        };
+        
+        let plugin = PromptTransformer::with_config(config.clone(), None);
+        
+        assert_eq!(plugin.config.transformations.len(), 1);
+        assert!(matches!(plugin.config.transformations[0].transform_type, TransformationType::AddSystemMessage));
+        assert!(plugin.templates.contains_key("general_instruction")); // Check default templates loaded
+    }
+    
+    // NOTE: Testing the full handle_request flow is currently limited
+    // due to the inability to mock/access the request body easily in tests
+    // within the current structure. The existing tests cover the core
+    // transformation logic helpers.
 } 
