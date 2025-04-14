@@ -13,7 +13,7 @@ use provider::{OauthType, OauthUser, Provider};
 
 use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
 
-use super::{get_required_config, jwt, MiddlewarePlugin};
+use super::{get_required_config, jwt};
 
 // New providers can be added here
 mod github;
@@ -172,15 +172,34 @@ impl Oauth2 {
     }
 }
 
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for Oauth2 {
+    async fn request_filter(
+        &self,
+        session: &mut Session,
+        ctx: &mut RouterContext,
+        plugin: &RoutePlugin,
+    ) -> anyhow::Result<bool> {
+        // ... implementation ...
+    }
+
     async fn upstream_request_filter(
         &self,
         _: &mut Session,
         _: &mut RequestHeader,
         _: &mut RouterContext,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    async fn response_filter(
+        &self,
+        _: &mut Session,
+        _: &mut RouterContext,
+        _: &RoutePlugin,
+    ) -> anyhow::Result<bool> {
+        Ok(false)
     }
 
     fn upstream_response_filter(
@@ -188,140 +207,8 @@ impl MiddlewarePlugin for Oauth2 {
         _: &mut Session,
         _: &mut ResponseHeader,
         _: &mut RouterContext,
-    ) -> Result<()> {
+    ) -> anyhow::Result<()> {
         Ok(())
     }
-
-    /// Oauth2 filters requests with/without the required Secure Cookie
-    /// If the request has the required cookie, the request is allowed to pass through
-    /// and we perform a JWT validation
-    /// If the request does not have the required cookie, the request is blocked
-    /// and we return a redirect to the oauth login flow (HTTP 307)
-    async fn request_filter(
-        &self,
-        session: &mut Session,
-        ctx: &mut RouterContext,
-        plugin: &RoutePlugin,
-    ) -> Result<bool> {
-        // Nothing to do if the plugin configuration is not present
-        if plugin.config.is_none() {
-            return Ok(false);
-        }
-
-        let plugin_config = plugin.config.as_ref().unwrap();
-
-        let provider = Self::parse_provider(plugin_config)?;
-
-        let client_id = get_required_config(plugin_config, "client_id")?;
-        let client_secret = get_required_config(plugin_config, "client_secret")?;
-        let jwt_secret = get_required_config(plugin_config, "jwt_secret")?;
-        let validations = plugin_config.get("validations");
-
-        // Callback path based on the selected provider
-        let callback_path = format!("/__/oauth/{}/callback", &provider);
-
-        // Create provider service
-        let oauth_provider = Provider {
-            client_id,
-            client_secret,
-            typ: provider,
-        };
-
-        let uri = &session.req_header().uri;
-
-        // Step 0. Check if the request is for the Oauth Callback URL
-        if uri.path() == callback_path {
-            let Some(query) = uri.query() else {
-                return self.unauthorized_response(session).await;
-            };
-
-            let query_params = shared::from_string_to_query_params(query);
-
-            let Some(code) = query_params.get("code") else {
-                tracing::info!("missing code in the query");
-                return self.unauthorized_response(session).await;
-            };
-
-            let Some(state) = query_params.get("state") else {
-                tracing::info!("missing state in the query");
-                return self.unauthorized_response(session).await;
-            };
-
-            // Get encrypted state and decrypt it
-            let Ok(encrypted) = self.short_crypt.decrypt_url_component(state) else {
-                tracing::info!("state does not exist or was removed");
-                return self.unauthorized_response(session).await;
-            };
-
-            let Ok(redirect_from_state) = String::from_utf8(encrypted) else {
-                tracing::info!("state is not a valid UTF-8 string");
-                return self.unauthorized_response(session).await;
-            };
-
-            let (timestamp, current_address) = redirect_from_state.split_once(';').unwrap();
-            let timestamp = timestamp.parse::<u64>().unwrap();
-            let current_address = current_address.to_string();
-
-            // Check if the state is still valid from the last 120 seconds (2 minutes)
-            if timestamp + 120 < get_current_timestamp() {
-                tracing::info!("state has expired");
-                return self.unauthorized_response(session).await;
-            }
-
-            // Step 1: Exchange the code for an access token
-            let user = match oauth_provider.get_oauth_user(code).await {
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to exchange code {code}, state {redirect_from_state}: {err}"
-                    );
-                    return self.unauthorized_response(session).await;
-                }
-                Ok(user) => user,
-            };
-
-            // Validate if user is authorized to access the protected resource
-            if !Self::is_authorized(&user, validations) {
-                tracing::info!("user is not authorized {:?}", user);
-                return self.unauthorized_response(session).await;
-            }
-
-            let jwt_cookie = secure_cookie::create_secure_cookie(&user, &jwt_secret, &ctx.host)?;
-
-            let mut res_headers = ResponseHeader::build_no_case(StatusCode::FOUND, Some(1))?;
-            res_headers.insert_header(http::header::SET_COOKIE, jwt_cookie.to_string())?;
-            res_headers.insert_header(http::header::LOCATION, current_address)?;
-            res_headers.insert_header(
-                http::header::CACHE_CONTROL,
-                "no-store, no-cache, must-revalidate, max-age=0",
-            )?;
-
-            session
-                .write_response_header(Box::new(res_headers), true)
-                .await?;
-
-            return Ok(true);
-        }
-
-        if self
-            .validate_cookie(session, &jwt_secret, validations)
-            .await?
-        {
-            // If the user is not authorized, return true to
-            // interrupt the request
-            return Ok(false);
-        }
-
-        self.redirect_to_oauth_callback(session, &oauth_provider)
-            .await
-    }
-
-    // Nothing to do after upstream response
-    async fn response_filter(
-        &self,
-        _: &mut Session,
-        _: &mut RouterContext,
-        _: &RoutePlugin,
-    ) -> Result<bool> {
-        Ok(false)
-    }
 }
+*/

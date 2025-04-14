@@ -10,7 +10,6 @@ use bytes;
 use http::StatusCode;
 
 use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
-use super::MiddlewarePlugin;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderTemplate {
@@ -667,6 +666,7 @@ impl AiRequestBuilder {
     }
 }
 
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for AiRequestBuilder {
     async fn request_filter(
@@ -723,6 +723,7 @@ impl MiddlewarePlugin for AiRequestBuilder {
         Ok(())
     }
 }
+*/
 
 #[cfg(test)]
 mod tests {

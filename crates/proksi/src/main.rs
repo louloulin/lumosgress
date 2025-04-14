@@ -12,7 +12,12 @@ use pingora::{listeners::tls::TlsSettings, proxy::http_proxy_service, server::co
 use proxy_server::cert_store::CertStore;
 use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService};
 
-use plugins::{Plugin, tenant::TenantPlugin, compliance::CompliancePlugin, api_server::ApiServerPlugin};
+use plugins::{
+    tenant::TenantPlugin,
+    compliance::CompliancePlugin,
+    api_server::ApiServerPlugin,
+    core::Plugin,
+};
 use models::tenant::{ResourceQuota, ResourceUsage, TenantStatus};
 
 mod cache;

@@ -19,8 +19,6 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
-use crate::plugins::MiddlewarePlugin;
-
 mod anomaly_detection;
 
 pub use anomaly_detection::{
@@ -615,111 +613,12 @@ impl AiAnalytics {
     }
 }
 
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for AiAnalytics {
-    async fn request_filter(
-        &self,
-        session: &mut Session,
-        state: &mut RouterContext,
-        config: &RoutePlugin,
-    ) -> Result<bool> {
-        // Get the config name from the plugin config
-        let config_name = match &config.config {
-            Some(cfg) => match cfg.get("config_name") {
-                Some(name) => match name.as_str() {
-                    Some(s) => s,
-                    None => return Ok(false),
-                },
-                None => return Ok(false),
-            },
-            None => return Ok(false),
-        };
-
-        // Get the config by name
-        if let Some(analytics_config) = self.get_config(config_name) {
-            // Check if this is a dashboard request
-            if analytics_config.dashboard_enabled {
-                if let Some(dashboard_path) = &analytics_config.dashboard_path {
-                    let path = session.req_header().uri.path();
-                    if path == dashboard_path.as_str() {
-                        // This is a dashboard request
-                        if let Some(dashboard_html) = self.handle_dashboard_request(analytics_config) {
-                            // Respond with the dashboard HTML
-                            let content_length = dashboard_html.len();
-                            let mut response = ResponseHeader::build(StatusCode::OK, None)?;
-                            response.append_header("Content-Type", "text/html; charset=utf-8")?;
-                            response.append_header("Content-Length", content_length.to_string())?;
-                            
-                            session.write_response_header(Box::new(response), false).await?;
-                            session.write_response_body(Some(bytes::Bytes::from(dashboard_html)), true).await?;
-                            return Ok(true);
-                        }
-                    }
-                }
-            }
-
-            // Process the request metrics asynchronously
-            match self.process_request(session, analytics_config).await {
-                Ok(_) => {},
-                Err(e) => warn!("Error processing analytics for request: {:?}", e)
-            }
-        }
-
-        // Continue processing the request
-        Ok(false)
-    }
-
-    async fn upstream_request_filter(
-        &self,
-        _session: &mut Session,
-        _upstream_request: &mut RequestHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // No modifications needed for upstream requests
-        Ok(())
-    }
-
-    async fn response_filter(
-        &self,
-        session: &mut Session,
-        state: &mut RouterContext,
-        config: &RoutePlugin,
-    ) -> Result<bool> {
-        // Get the config name from the plugin config
-        let config_name = match &config.config {
-            Some(cfg) => match cfg.get("config_name") {
-                Some(name) => match name.as_str() {
-                    Some(s) => s,
-                    None => return Ok(false),
-                },
-                None => return Ok(false),
-            },
-            None => return Ok(false),
-        };
-
-        // Get the config by name
-        if let Some(analytics_config) = self.get_config(config_name) {
-            // Process the response metrics asynchronously
-            match self.process_response(session, analytics_config, config_name).await {
-                Ok(_) => {},
-                Err(e) => warn!("Error processing analytics for response: {:?}", e)
-            }
-        }
-
-        // Continue processing the response
-        Ok(false)
-    }
-
-    fn upstream_response_filter(
-        &self,
-        _session: &mut Session,
-        _upstream_response: &mut ResponseHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // No modifications needed for upstream responses
-        Ok(())
-    }
+    // ... implementation ...
 }
+*/
 
 // 实现各个存储后端
 struct InMemoryStorage {

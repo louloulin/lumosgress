@@ -19,8 +19,6 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
-use super::MiddlewarePlugin;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VectorDbConfig {
     pub provider: VectorDbProvider,
@@ -194,6 +192,7 @@ impl VectorDb {
     }
 }
 
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for VectorDb {
     async fn request_filter(
@@ -240,6 +239,7 @@ impl MiddlewarePlugin for VectorDb {
         Ok(())
     }
 }
+*/
 
 struct PineconeClient {
     config: VectorDbConfig,

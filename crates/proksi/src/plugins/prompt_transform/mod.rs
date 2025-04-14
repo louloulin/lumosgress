@@ -19,8 +19,6 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
-use super::MiddlewarePlugin;
-
 // 提示转换类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransformationType {
@@ -627,63 +625,6 @@ impl PromptTransformer {
         }
         
         false
-    }
-}
-
-// 实现中间件插件 trait
-#[async_trait]
-impl MiddlewarePlugin for PromptTransformer {
-    async fn request_filter(
-        &self,
-        session: &mut Session,
-        state: &mut RouterContext,
-        config: &RoutePlugin,
-    ) -> Result<bool> {
-        // 获取插件配置
-        let config_data = config.config.as_ref().ok_or_else(|| anyhow!("Prompt Transform plugin requires configuration"))?;
-        
-        // 获取配置名
-        let config_name = get_required_config(config_data, "config_name").unwrap_or_else(|_| "default".to_string());
-        
-        // 检查之前是否已确定LLM提供商
-        let provider = state.extensions.get(&Cow::Borrowed("llm_provider"))
-            .map(|s| s.as_str());
-        
-        // 转换提示
-        self.transform_prompt(session, &config_name, provider).await?;
-        
-        // 继续处理请求
-        Ok(false)
-    }
-
-    async fn upstream_request_filter(
-        &self,
-        _session: &mut Session,
-        _upstream_request: &mut RequestHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // 提示已在request_filter中转换，这里无需额外操作
-        Ok(())
-    }
-
-    async fn response_filter(
-        &self,
-        _session: &mut Session,
-        _state: &mut RouterContext,
-        _config: &RoutePlugin,
-    ) -> Result<bool> {
-        // 响应无需处理
-        Ok(false)
-    }
-
-    fn upstream_response_filter(
-        &self,
-        _session: &mut Session,
-        _upstream_response: &mut ResponseHeader,
-        _state: &mut RouterContext,
-    ) -> Result<()> {
-        // 响应无需处理
-        Ok(())
     }
 }
 

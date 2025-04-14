@@ -7,8 +7,6 @@ use pingora::proxy::Session;
 
 use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
 
-use super::MiddlewarePlugin;
-
 /// A plugin that adds a request ID to the request headers
 /// and response headers
 pub struct RequestId {}
@@ -19,6 +17,7 @@ impl RequestId {
     }
 }
 
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for RequestId {
     async fn request_filter(
@@ -69,3 +68,4 @@ impl MiddlewarePlugin for RequestId {
         Ok(false)
     }
 }
+*/

@@ -19,8 +19,6 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
-use super::MiddlewarePlugin;
-
 // 聚合策略
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AggregationStrategy {
@@ -104,6 +102,7 @@ impl Clone for LlmAggregator {
     }
 }
 
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for LlmAggregator {
     async fn request_filter(
@@ -190,6 +189,7 @@ impl MiddlewarePlugin for LlmAggregator {
         Ok(())
     }
 }
+*/
 
 // 在静态注册表中注册插件
 pub static LLM_AGGREGATOR: Lazy<LlmAggregator> = Lazy::new(LlmAggregator::new);

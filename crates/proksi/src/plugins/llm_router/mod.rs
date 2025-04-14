@@ -17,8 +17,6 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
-use super::MiddlewarePlugin;
-
 // 支持的LLM提供商
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LlmProvider {
@@ -146,7 +144,7 @@ impl LlmRouter {
     }
 }
 
-// 实现中间件插件 trait
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for LlmRouter {
     async fn request_filter(
@@ -254,6 +252,7 @@ impl MiddlewarePlugin for LlmRouter {
         Ok(())
     }
 }
+*/
 
 // 在静态注册表中注册插件
 pub static LLM_ROUTER: Lazy<LlmRouter> = Lazy::new(LlmRouter::new);

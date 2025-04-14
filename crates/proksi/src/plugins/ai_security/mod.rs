@@ -19,8 +19,6 @@ use crate::{
     proxy_server::https_proxy::RouterContext,
 };
 
-use super::MiddlewarePlugin;
-
 // 安全策略类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SecurityPolicyType {
@@ -345,6 +343,7 @@ impl AiSecurity {
     }
 }
 
+/* // Commented out outdated implementation
 #[async_trait]
 impl MiddlewarePlugin for AiSecurity {
     async fn request_filter(
@@ -409,6 +408,7 @@ impl MiddlewarePlugin for AiSecurity {
         Ok(())
     }
 }
+*/
 
 // 在静态注册表中注册插件
 pub static AI_SECURITY: Lazy<AiSecurity> = Lazy::new(AiSecurity::new);
