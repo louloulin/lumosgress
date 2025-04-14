@@ -2,7 +2,9 @@
 mod tests {
     use std::sync::Arc;
     use std::time::Duration;
-    use super::*;
+    use crate::plugins::api_server::{ApiServerConfig, ApiServerPlugin};
+    use crate::plugins::Plugin;
+    use crate::config::Config;
 
     #[tokio::test]
     async fn test_api_server_config() {
