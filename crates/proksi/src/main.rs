@@ -10,9 +10,9 @@ use std::{borrow::Cow, sync::Arc};
 use pingora::{listeners::tls::TlsSettings, proxy::http_proxy_service, server::configuration::Opt};
 
 use proxy_server::cert_store::CertStore;
-use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService, server};
+use services::{logger::ProxyLoggerReceiver, BackgroundFunctionService};
 
-use plugins::{Plugin, tenant::TenantPlugin, compliance::CompliancePlugin};
+use plugins::{Plugin, tenant::TenantPlugin, compliance::CompliancePlugin, api_server::ApiServerPlugin};
 use models::tenant::{ResourceQuota, ResourceUsage, TenantStatus};
 
 mod cache;
@@ -67,11 +67,11 @@ fn main() -> Result<(), anyhow::Error> {
     let proxy_config =
         Arc::new(load("/etc/proksi/configs").expect("Failed to load configuration: "));
 
-    // 启动 API 服务器
+    // 启动 API 服务器及其他插件
     let config_clone = proxy_config.clone();
     tokio::spawn(async move {
-        if let Err(e) = server::start_api_server(config_clone).await {
-            tracing::error!("API server error: {}", e);
+        if let Err(e) = initialize_plugins(config_clone).await {
+            tracing::error!("Plugin initialization error: {}", e);
         }
     });
 
@@ -182,25 +182,106 @@ fn main() -> Result<(), anyhow::Error> {
         server_info,
     );
 
-    async fn initialize_plugins() -> Result<(), Box<dyn std::error::Error>> {
-        // 初始化租户插件
+    pingora_server.run_forever();
+
+    Ok(())
+}
+
+/// 初始化和注册系统插件
+async fn initialize_plugins(proxy_config: Arc<config::Config>) -> Result<(), Box<dyn std::error::Error>> {
+    // 根据配置动态加载插件
+    if let Some(plugins_config) = &proxy_config.plugins {
+        // 租户插件
+        if let Some(tenant_config) = &plugins_config.tenant {
+            if tenant_config.enabled {
+                tracing::info!("Initializing tenant plugin...");
+                let tenant_plugin = TenantPlugin::new(plugins::tenant::TenantPluginConfig {
+                    default_quota: ResourceQuota { 
+                        requests: tenant_config.default_requests.unwrap_or(1000) as u64, 
+                        tokens: tenant_config.default_tokens.unwrap_or(10000) as u64 
+                    },
+                    isolation_enabled: tenant_config.isolation_enabled.unwrap_or(true),
+                }).await?;
+                plugins::manager::register(tenant_plugin);
+                tracing::info!("Tenant plugin registered");
+            }
+        }
+        
+        // 合规插件
+        if let Some(compliance_config) = &plugins_config.compliance {
+            if compliance_config.enabled {
+                tracing::info!("Initializing compliance plugin...");
+                let compliance_plugin = CompliancePlugin::new(plugins::compliance::CompliancePluginConfig {
+                    retention_period_days: compliance_config.retention_period_days.unwrap_or(30),
+                    alert_threshold: compliance_config.alert_threshold.unwrap_or(0.9),
+                }).await?;
+                plugins::manager::register(compliance_plugin);
+                tracing::info!("Compliance plugin registered");
+            }
+        }
+        
+        // API服务器插件
+        if let Some(api_config) = &plugins_config.api_server {
+            if api_config.enabled {
+                tracing::info!("Initializing API server plugin...");
+                let plugin_config = plugins::api_server::ApiServerConfig {
+                    listen_address: api_config.listen_address.clone().unwrap_or_else(|| "127.0.0.1:8080".to_string()),
+                    enable_access_log: api_config.enable_access_log.unwrap_or(true),
+                    enable_cors: api_config.enable_cors.unwrap_or(true),
+                };
+                
+                let mut api_server_plugin = ApiServerPlugin::new(plugin_config).await?;
+                api_server_plugin = api_server_plugin.with_system_config(proxy_config.clone());
+                
+                // 启动API服务器
+                if let Err(e) = api_server_plugin.start().await {
+                    tracing::error!("API server start error: {}", e);
+                } else {
+                    plugins::manager::register(api_server_plugin);
+                    tracing::info!("API server plugin registered and started");
+                }
+            }
+        }
+    } else {
+        // 如果没有显式配置插件，使用默认配置初始化核心插件
+        tracing::info!("No plugin configuration found, initializing with defaults...");
+        
+        // 默认初始化租户插件
         let tenant_plugin = TenantPlugin::new(plugins::tenant::TenantPluginConfig {
             default_quota: ResourceQuota { requests: 1000, tokens: 10000 },
             isolation_enabled: true,
         }).await?;
-
-        // 初始化合规插件
+        plugins::manager::register(tenant_plugin);
+        tracing::info!("Tenant plugin registered (default)");
+        
+        // 默认初始化合规插件
         let compliance_plugin = CompliancePlugin::new(plugins::compliance::CompliancePluginConfig {
             retention_period_days: 30,
             alert_threshold: 0.9,
         }).await?;
-
-        // 注册插件到插件管理器
-        plugins::manager::register(tenant_plugin);
         plugins::manager::register(compliance_plugin);
-
-        Ok(())
+        tracing::info!("Compliance plugin registered (default)");
+        
+        // 默认初始化API服务器插件
+        let api_config = plugins::api_server::ApiServerConfig {
+            listen_address: "127.0.0.1:8080".to_string(),
+            enable_access_log: true,
+            enable_cors: true,
+        };
+        let mut api_server_plugin = ApiServerPlugin::new(api_config).await?;
+        api_server_plugin = api_server_plugin.with_system_config(proxy_config);
+        
+        if let Err(e) = api_server_plugin.start().await {
+            tracing::error!("API server start error: {}", e);
+        } else {
+            plugins::manager::register(api_server_plugin);
+            tracing::info!("API server plugin registered and started (default)");
+        }
     }
 
-    pingora_server.run_forever();
+    // 输出已加载的插件列表
+    let plugins = plugins::manager::list_plugins();
+    tracing::info!("Loaded plugins: {:?}", plugins);
+
+    Ok(())
 }

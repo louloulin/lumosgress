@@ -27,6 +27,7 @@ pub mod ai_analytics;
 pub mod ai_request_builder;
 pub mod prompt_debugger;
 pub mod performance_analyzer;
+pub mod api_server;
 
 pub mod tenant;
 pub mod compliance;
@@ -135,18 +136,36 @@ pub enum PluginError {
     InitializationFailed(String),
     #[error("{0} already exists")]
     AlreadyExists(&'static str),
-    // 其他错误类型...
+    #[error("Plugin {0} not found")]
+    NotFound(String),
+    #[error("Failed to start plugin: {0}")]
+    StartFailed(String),
+    #[error("Failed to stop plugin: {0}")]
+    StopFailed(String),
 }
 
 #[async_trait]
 pub trait Plugin: Send + Sync {
-    type Config: PluginConfig;
-    
+    /// The configuration type for this plugin.
+    type Config;
+
+    /// Create a new instance of this plugin.
     async fn new(config: Self::Config) -> Result<Self, PluginError>
     where
         Self: Sized;
-    
+
+    /// Return the name of this plugin.
     fn name(&self) -> &'static str;
+    
+    /// Start the plugin (optional)
+    async fn start(&mut self) -> Result<(), PluginError> {
+        Ok(()) // 默认实现，不做任何事情
+    }
+    
+    /// Stop the plugin (optional)
+    async fn stop(&mut self) -> Result<(), PluginError> {
+        Ok(()) // 默认实现，不做任何事情
+    }
 }
 
 pub trait PluginConfig: Send + Sync + 'static + Serialize + for<'de> Deserialize<'de> {

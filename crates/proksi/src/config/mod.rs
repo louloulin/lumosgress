@@ -691,6 +691,82 @@ impl Default for MonitoringConfig {
     }
 }
 
+/// 插件总配置
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PluginsConfig {
+    /// API服务器插件配置
+    #[serde(default)]
+    pub api_server: Option<ApiServerPluginConfig>,
+    
+    /// 租户插件配置
+    #[serde(default)]
+    pub tenant: Option<TenantPluginConfig>,
+    
+    /// 合规插件配置
+    #[serde(default)]
+    pub compliance: Option<CompliancePluginConfig>,
+}
+
+/// API服务器插件配置
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ApiServerPluginConfig {
+    /// 是否启用插件
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    
+    /// 监听地址
+    #[serde(default)]
+    pub listen_address: Option<String>,
+    
+    /// 是否启用访问日志
+    #[serde(default)]
+    pub enable_access_log: Option<bool>,
+    
+    /// 是否启用CORS
+    #[serde(default)]
+    pub enable_cors: Option<bool>,
+}
+
+/// 租户插件配置
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TenantPluginConfig {
+    /// 是否启用插件
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    
+    /// 默认请求配额
+    #[serde(default)]
+    pub default_requests: Option<usize>,
+    
+    /// 默认令牌配额
+    #[serde(default)]
+    pub default_tokens: Option<usize>,
+    
+    /// 是否启用隔离
+    #[serde(default)]
+    pub isolation_enabled: Option<bool>,
+}
+
+/// 合规插件配置
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CompliancePluginConfig {
+    /// 是否启用插件
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    
+    /// 数据保留天数
+    #[serde(default)]
+    pub retention_period_days: Option<u32>,
+    
+    /// 告警阈值
+    #[serde(default)]
+    pub alert_threshold: Option<f64>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// The main configuration struct.
 /// A configuration file (YAML, TOML or through ENV) will be parsed into this struct.
 /// Example:
@@ -800,6 +876,12 @@ pub(crate) struct Config {
     /// The routes to be proxied to.
     #[clap(skip)]
     pub routes: Vec<Route>,
+
+    /// 插件配置
+    #[serde(default)]
+    #[clap(skip)]
+    pub plugins: Option<PluginsConfig>,
+
     // Listeners -- a list of specific listeners and upstrems
     // that don't necessarily need to be HTTP/HTTPS related
     // pub listeners: Vec<ConfigListener>,
@@ -834,24 +916,10 @@ impl Default for Config {
             tenant: TenantConfig::default(),
             compliance: ComplianceConfig::default(),
             monitoring: MonitoringConfig::default(),
+            plugins: None,
         }
     }
 }
-
-// impl Config {
-//     // Allow the configuration to be extracted from any `Provider`.
-//     fn from<T: figment::Provider>(provider: T) -> Result<Config, figment::Error> {
-//         Figment::from(provider).extract()
-//     }
-
-//     // Provide a default provider, a `Figment`.
-//     fn figment() -> Figment {
-//         use figment::providers::Env;
-
-//         // In reality, whatever the library desires.
-//         Figment::from(Config::default()).merge(Env::prefixed("APP_"))
-//     }
-// }
 
 /// Implement the `Provider` trait for the `Config` struct.
 /// This allows the `Config` struct to be used as a configuration provider with *defaults*.
