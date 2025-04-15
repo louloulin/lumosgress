@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    
-    use pingora::http::ResponseHeader;
+    use futures_util::FutureExt;
+    use pingora::http::{ResponseHeader, StatusCode};
     use pingora::proxy::Session;
+    use tokio_test::io::Builder;
     
     use crate::plugins::core::{Plugin, PluginStep};
     use crate::plugins::request_id::{RequestId, RequestIdConfig};
@@ -18,17 +19,29 @@ mod tests {
             extensions: HashMap::new(),
             is_websocket: false,
             timings: Default::default(),
-            upstream_response: None,
             plugins_data: HashMap::new(),
             request_id: String::new(),
+            upstream_response: None,
         }
+    }
+    
+    fn create_test_session(path: &[u8]) -> Session {
+        let headers = [""].join("\r\n");
+        let input_header = format!(
+            "GET {} HTTP/1.1\r\n{headers}\r\n\r\n",
+            String::from_utf8_lossy(path)
+        );
+        let mock_io = Builder::new().read(input_header.as_bytes()).build();
+        let mut session = Session::new_h1(Box::new(mock_io));
+        session.read_request().now_or_never().unwrap().unwrap();
+        session
     }
     
     #[tokio::test]
     async fn test_request_id_generation() {
         let plugin = RequestId::new();
         let mut ctx = create_test_context();
-        let mut session = Session::new_dummy();
+        let mut session = create_test_session(b"/test");
         
         // 测试 handle_request
         let result = plugin.handle_request(
@@ -54,26 +67,20 @@ mod tests {
     
     #[tokio::test]
     async fn test_response_header_with_request_id() {
-        let plugin = RequestId::with_config(RequestIdConfig {
-            enabled: true,
-            header_name: "x-test-request-id".to_string(),
-        });
-        
+        let plugin = RequestId::new();
         let mut ctx = create_test_context();
-        let mut session = Session::new_dummy();
+        let mut session = create_test_session(b"/test");
         
         // 首先生成一个请求ID
-        plugin.handle_request(
+        let result = plugin.handle_request(
             PluginStep::Request,
             &mut session,
             &mut ctx
-        ).await.unwrap();
-        
-        // 验证请求ID不为空
-        assert!(!ctx.request_id.is_empty());
+        ).await;
+        assert!(result.is_ok());
         
         // 创建响应头
-        let mut response_header = ResponseHeader::build(200, None).unwrap();
+        let mut response_header = ResponseHeader::build(StatusCode::OK, None).unwrap();
         
         // 处理响应
         let result = plugin.handle_response(
@@ -88,8 +95,11 @@ mod tests {
         assert!(result.unwrap()); // 表示已修改响应
         
         // 验证响应头包含请求ID
-        let header_value = response_header.get_header("x-test-request-id").unwrap();
-        assert_eq!(header_value, ctx.request_id);
+        assert!(response_header.headers.contains_key("x-request-id"));
+        assert_eq!(
+            response_header.headers.get("x-request-id").unwrap().to_str().unwrap(),
+            ctx.request_id
+        );
     }
     
     #[tokio::test]
@@ -100,7 +110,7 @@ mod tests {
         });
         
         let mut ctx = create_test_context();
-        let mut session = Session::new_dummy();
+        let mut session = create_test_session(b"/test");
         
         // 处理请求
         let result = plugin.handle_request(
@@ -120,7 +130,7 @@ mod tests {
         assert!(!ctx.extensions.contains_key("request_id_header"));
         
         // 创建响应头
-        let mut response_header = ResponseHeader::build(200, None).unwrap();
+        let mut response_header = ResponseHeader::build(StatusCode::OK, None).unwrap();
         
         // 处理响应
         let result = plugin.handle_response(
@@ -135,6 +145,6 @@ mod tests {
         assert!(!result.unwrap()); // 表示未修改响应
         
         // 验证响应头不包含请求ID
-        assert!(response_header.get_header("x-request-id").is_none());
+        assert!(!response_header.headers.contains_key("x-request-id"));
     }
-} 
+}

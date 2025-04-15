@@ -9,22 +9,22 @@ mod tests {
     #[tokio::test]
     async fn test_api_server_config() {
         let config = ApiServerConfig {
-            listen_address: "127.0.0.1:0".to_string(), // Use port 0 for auto-assignment in tests
-            enable_access_log: true,
-            enable_cors: true,
+            listen_addr: "127.0.0.1:0".to_string(), // Use port 0 for auto-assignment in tests
+            access_log: true,
+            cors: true,
         };
 
-        assert_eq!(config.listen_address, "127.0.0.1:0");
-        assert_eq!(config.enable_access_log, true);
-        assert_eq!(config.enable_cors, true);
+        assert_eq!(config.listen_addr, "127.0.0.1:0");
+        assert_eq!(config.access_log, true);
+        assert_eq!(config.cors, true);
     }
 
     #[tokio::test]
     async fn test_api_server_create() {
         let config = ApiServerConfig {
-            listen_address: "127.0.0.1:0".to_string(),
-            enable_access_log: false,
-            enable_cors: false,
+            listen_addr: "127.0.0.1:0".to_string(),
+            access_log: false,
+            cors: false,
         };
 
         let plugin = ApiServerPlugin::new(config).await.unwrap();
@@ -34,9 +34,9 @@ mod tests {
     #[tokio::test]
     async fn test_api_server_with_system_config() {
         let config = ApiServerConfig {
-            listen_address: "127.0.0.1:0".to_string(),
-            enable_access_log: true,
-            enable_cors: true,
+            listen_addr: "127.0.0.1:0".to_string(),
+            access_log: true,
+            cors: true,
         };
 
         let system_config = Arc::new(Config::default());
@@ -49,9 +49,9 @@ mod tests {
     #[tokio::test]
     async fn test_api_server_start_stop() {
         let config = ApiServerConfig {
-            listen_address: "127.0.0.1:0".to_string(), // Use port 0 for auto-assignment
-            enable_access_log: false,
-            enable_cors: false,
+            listen_addr: "127.0.0.1:0".to_string(), // Use port 0 for auto-assignment
+            access_log: false,
+            cors: false,
         };
 
         let system_config = Arc::new(Config::default());
@@ -71,4 +71,4 @@ mod tests {
         assert!(plugin.server_handle.is_none());
         assert!(plugin.shutdown_tx.is_none());
     }
-} 
+}

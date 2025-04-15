@@ -19,7 +19,7 @@ use tokio::sync::Mutex;
 use std::collections::HashMap;
 use tokio::net::TcpListener;
 
-use crate::plugins::core::{Plugin, PluginError};
+use crate::plugins::core::{Plugin, PluginError, PluginType, PluginMetadata};
 use crate::config::Config;
 
 #[cfg(test)]
@@ -33,15 +33,19 @@ pub struct ApiServerConfig {
     pub listen_addr: String,
     
     /// Whether to enable access logging, default is true
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub access_log: bool,
     
     /// Whether to enable CORS, default is true
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub cors: bool,
 }
 
-pub fn default_listen_addr() -> String {
+fn default_true() -> bool {
+    true
+}
+
+fn default_listen_addr() -> String {
     "127.0.0.1:8080".to_string()
 }
 
@@ -49,24 +53,33 @@ pub fn default_listen_addr() -> String {
 #[derive(Debug)]
 pub struct ApiServerPlugin {
     config: ApiServerConfig,
-    handle: Option<JoinHandle<()>>,
+    system_config: Option<Arc<Config>>,
+    server_handle: Option<JoinHandle<()>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
+}
+
+/// Application state containing shared data
+#[derive(Clone)]
+struct AppState {
+    config: Arc<Config>,
+    data: Arc<Mutex<HashMap<String, serde_json::Value>>>,
 }
 
 impl ApiServerPlugin {
     /// Create a new API server plugin
-    pub fn new(config: ApiServerConfig) -> Self {
-        ApiServerPlugin {
+    pub async fn new(config: ApiServerConfig) -> Result<Self, PluginError> {
+        Ok(Self {
             config,
-            handle: None,
+            system_config: None,
+            server_handle: None,
             shutdown_tx: None,
-        }
+        })
     }
 
     /// Set the system configuration
-    pub fn with_system_config(config: &Config) -> Self {
-        let api_server_config = config.api_server.clone().unwrap_or_default();
-        Self::new(api_server_config)
+    pub fn with_system_config(mut self, config: Arc<Config>) -> Self {
+        self.system_config = Some(config);
+        self
     }
 }
 
@@ -75,18 +88,34 @@ impl Plugin for ApiServerPlugin {
     fn name(&self) -> &'static str {
         "api_server"
     }
-    
-    /// Start the API server
+
+    fn plugin_type(&self) -> PluginType {
+        PluginType::Native
+    }
+
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 0,
+            plugin_type: self.plugin_type(),
+            description: "Provides HTTP API endpoints for monitoring and configuration".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/proksi/proksi".to_string()),
+        }
+    }
+
     async fn start(&mut self) -> Result<(), PluginError> {
         info!("Starting API server on {}", self.config.listen_addr);
         
-        let listen_addr = self.config.listen_addr.clone();
-        let access_log = self.config.access_log;
-        let cors = self.config.cors;
+        let system_config = self.system_config.clone().ok_or_else(|| {
+            PluginError::InitializationFailed("System config not set".to_string())
+        })?;
 
-        let app_state = Arc::new(AppState {
-            data: Mutex::new(HashMap::new()),
-        });
+        let app_state = AppState {
+            config: system_config,
+            data: Arc::new(Mutex::new(HashMap::new())),
+        };
 
         let mut router = Router::new()
             .route("/health", get(health_handler))
@@ -94,105 +123,101 @@ impl Plugin for ApiServerPlugin {
             .route("/config", get(config_handler))
             .with_state(app_state);
 
-        if access_log {
-            // Add access logging if enabled
+        if self.config.access_log {
+            // Add access logging middleware if enabled
             warn!("Access logging for API server is enabled but not implemented");
         }
 
-        if cors {
-            // Add CORS if enabled
+        if self.config.cors {
+            // Add CORS middleware if enabled
             warn!("CORS for API server is enabled but not implemented");
         }
 
-        let addr: SocketAddr = listen_addr.parse()
-            .map_err(|e| {
-                error!("Failed to parse listen address: {}", e);
-                PluginError::InitializationFailed(format!("Failed to parse listen address: {}", e))
-            })?;
-        
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        self.shutdown_tx = Some(shutdown_tx);
-        
+        let addr: SocketAddr = self.config.listen_addr.parse()
+            .map_err(|e| PluginError::InitializationFailed(format!("Invalid address: {}", e)))?;
+
         let listener = TcpListener::bind(&addr).await
-            .map_err(|e| {
-                error!("Failed to bind to address: {}", e);
-                PluginError::InitializationFailed(format!("Failed to bind to address: {}", e))
-            })?;
+            .map_err(|e| PluginError::InitializationFailed(format!("Failed to bind: {}", e)))?;
+
+        let actual_addr = listener.local_addr()
+            .map_err(|e| PluginError::InitializationFailed(format!("Failed to get local address: {}", e)))?;
         
-        let server = axum::serve(listener, router);
-        let server_with_shutdown = server.with_graceful_shutdown(async {
-            let _ = shutdown_rx.await;
-        });
-        
-        let handle = tokio::spawn(async move {
-            if let Err(e) = server_with_shutdown.await {
+        info!("API server listening on {}", actual_addr);
+
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        self.shutdown_tx = Some(shutdown_tx);
+
+        let server = axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            });
+
+        self.server_handle = Some(tokio::spawn(async move {
+            if let Err(e) = server.await {
                 error!("API server error: {}", e);
             }
-        });
-        
-        self.handle = Some(handle);
-        info!("API server started on {}", addr);
-        
+        }));
+
         Ok(())
     }
-    
-    /// Stop the API server
+
     async fn stop(&mut self) -> Result<(), PluginError> {
         info!("Stopping API server");
         
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
-        
-        if let Some(handle) = self.handle.take() {
-            let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+
+        if let Some(handle) = self.server_handle.take() {
+            handle.abort();
+            let _ = handle.await;
         }
-        
-        info!("API server stopped");
+
         Ok(())
     }
 }
 
-/// Application state containing shared data
-#[derive(Clone)]
-struct AppState {
-    data: Mutex<HashMap<String, i64>>,
-}
-
-/// Health check endpoint
+/// Health check endpoint handler
 async fn health_handler() -> &'static str {
     "OK"
 }
 
-/// Get metrics endpoint
+/// Metrics endpoint handler
 async fn metrics_handler(State(state): State<AppState>) -> Json<HashMap<String, i64>> {
-    let metrics = state.data.lock().await;
-    Json(metrics.clone())
+    // TODO: Implement real metrics collection
+    let metrics = HashMap::from([
+        ("requests_total".to_string(), 0),
+        ("errors_total".to_string(), 0),
+    ]);
+    Json(metrics)
 }
 
-/// Get configuration endpoint
+/// Config endpoint handler 
 async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
-    // In a real project, you might want to filter sensitive information
-    let data = state.data.lock().await.clone();
-    match serde_json::to_string(&data) {
-        Ok(config_json) => (StatusCode::OK, config_json).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize config").into_response(),
-    }
+    // Return sanitized configuration
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "status": "running"
+    }))
 }
 
 /// Compatibility function to start API server using existing code
 pub async fn start_api_server(config: Arc<Config>) -> Result<()> {
-    let api_config = ApiServerConfig {
-        listen_addr: "127.0.0.1:8080".to_string(),
-        access_log: true,
-        cors: true,
-    };
+    if let Some(api_config) = &config.plugins.as_ref().and_then(|p| p.api_server.as_ref()) {
+        if api_config.enabled {
+            let plugin_config = ApiServerConfig {
+                listen_addr: api_config.listen_address.clone()
+                    .unwrap_or_else(default_listen_addr),
+                access_log: api_config.enable_access_log.unwrap_or(true),
+                cors: api_config.enable_cors.unwrap_or(true),
+            };
+            
+            let mut plugin = ApiServerPlugin::new(plugin_config).await?;
+            plugin = plugin.with_system_config(config.clone());
+            
+            plugin.start().await.map_err(|e| anyhow::anyhow!("Failed to start API server: {}", e))?;
+        }
+    }
     
-    let mut plugin = ApiServerPlugin::new(api_config);
-    
-    plugin.start().await
-        .map_err(|e| anyhow::anyhow!("Failed to start API server: {}", e))?;
-    
-    // Server runs in the background
     Ok(())
-} 
+}

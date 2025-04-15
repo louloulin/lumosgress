@@ -147,20 +147,16 @@ async fn test_handle_response() {
 
 // Helper function to create a mock session
 fn create_mock_session(path: &str) -> Session {
-    // This is a simplified mock
-    let mut req_header = pingora::http::RequestHeader::build(
+    let req_header = pingora::http::RequestHeader::build(
         &pingora::http::Method::GET,
         path,
         None,
     ).unwrap();
-    
-    let s = Session::new_for_test(req_header);
-    s
+    Session::new_for_test(req_header)
 }
 
 // Helper function to create a mock context
 fn create_mock_context() -> RouterContext {
-    // Create a minimal context for testing
     RouterContext {
         host: "example.com".to_string(),
         route_container: Default::default(),
@@ -172,4 +168,4 @@ fn create_mock_context() -> RouterContext {
         request_id: "test-request-id".to_string(),
         upstream_response: None,
     }
-} 
+}

@@ -589,14 +589,20 @@ impl Plugin for AiRequestBuilder {
         ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
         if step != PluginStep::Request {
-             return Ok((false, None));
+            return Ok((false, None));
         }
-
-        let config = self.config.lock().await;
-        let req_path = session.req_header().uri.path();
-
-        if req_path == config.ui_endpoint {
-            info!("Serving AiRequestBuilder UI for path: {}", req_path);
+        
+        // Get a snapshot of the config to avoid locking issues
+        let config = self.config.lock().await.clone();
+        let req_path = session.req_header().uri.path().to_string();  // Clone to avoid immutable borrow issues
+        
+        if config.ui_endpoint.is_empty() || !req_path.starts_with(&config.ui_endpoint) {
+            return Ok((false, None));
+        }
+        
+        info!("Path: {}, UI Endpoint: {}", req_path, config.ui_endpoint);
+        
+        if req_path == config.ui_endpoint || req_path == format!("{}/", config.ui_endpoint) {
              match self.serve_ui(session, ctx, &config).await {
                  Ok(response_header) => Ok((true, Some(HttpResponse::new(
                      response_header.status, 
@@ -615,7 +621,7 @@ impl Plugin for AiRequestBuilder {
                  }
              }
         } else if config.enable_api && req_path.starts_with(&format!("{}/api/", config.ui_endpoint)) {
-             let path_suffix = req_path.strip_prefix(&config.ui_endpoint).unwrap_or(req_path);
+             let path_suffix = req_path.strip_prefix(&config.ui_endpoint).unwrap_or(&req_path);
              info!("Handling AiRequestBuilder API request for path suffix: {}", path_suffix);
               match self.handle_api_request(session, ctx, path_suffix, &config).await {
                   Ok(response_header) => Ok((true, Some(HttpResponse::new(
@@ -625,7 +631,7 @@ impl Plugin for AiRequestBuilder {
                   )))),
                   Err(e) => {
                      error!("Error handling AiRequestBuilder API request: {}", e);
-                     let err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
+                     let mut err_resp = ResponseHeader::build(StatusCode::INTERNAL_SERVER_ERROR, None)?;
                      let error_payload = serde_json::json!({ "error": format!("API Error: {}", e) });
                      let err_body = serde_json::to_vec(&error_payload)?;
                      err_resp.append_header("Content-Type", "application/json")?;

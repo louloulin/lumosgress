@@ -17,24 +17,16 @@ pub struct ApiServerPluginAdapter {
 
 #[async_trait]
 impl Plugin for ApiServerPluginAdapter {
-    fn plugin_type(&self) -> PluginType {
-        PluginType::Native
+    fn name(&self) -> &'static str {
+        self.inner.name()
     }
     
-    fn name(&self) -> &'static str {
-        "api_server"
+    fn plugin_type(&self) -> PluginType {
+        self.inner.plugin_type()
     }
     
     fn metadata(&self) -> PluginMetadata {
-        PluginMetadata {
-            name: self.name().to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            priority: 0, // System plugin, should run early
-            plugin_type: self.plugin_type(),
-            description: "API Server plugin for Proksi".to_string(),
-            author: "Proksi Team".to_string(),
-            homepage: Some("https://github.com/proksi/proksi".to_string()),
-        }
+        self.inner.metadata()
     }
     
     async fn handle_request(
@@ -43,61 +35,52 @@ impl Plugin for ApiServerPluginAdapter {
         _session: &mut pingora::proxy::Session,
         _ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
-        // API server doesn't handle requests directly
+        // API server doesn't handle proxy requests
         Ok((false, None))
     }
     
     async fn start(&mut self) -> Result<(), PluginError> {
-        info!("Starting API server plugin");
+        info!("Starting API server plugin adapter");
         self.inner.start().await
     }
     
     async fn stop(&mut self) -> Result<(), PluginError> {
-        info!("Stopping API server plugin");
+        info!("Stopping API server plugin adapter");
         self.inner.stop().await
     }
 }
 
 /// Factory for creating ApiServerPlugin instances
-pub struct ApiServerPluginFactory {
-    system_config: Arc<Config>,
-}
+pub struct ApiServerPluginFactory;
 
 impl ApiServerPluginFactory {
-    pub fn new(system_config: Arc<Config>) -> Self {
-        Self { system_config }
+    pub fn new() -> Self {
+        Self
     }
 }
 
+#[async_trait]
 impl PluginFactory for ApiServerPluginFactory {
-    fn create(&self, config: &Value) -> Result<Box<dyn Plugin>, PluginError> {
-        // Deserialize configuration
-        let api_config: ApiServerConfig = serde_json::from_value(config.clone())
-            .map_err(|e| PluginError::ConfigError(format!("Failed to parse API server config: {}", e)))?;
-        
-        // Create inner plugin
-        let inner_plugin = ApiServerPlugin::new(api_config)
-            .await
-            .map_err(|e| PluginError::InitializationFailed(format!("Failed to create API server plugin: {:?}", e)))?
-            .with_system_config(self.system_config.clone());
-        
-        // Wrap with adapter
-        Ok(Box::new(ApiServerPluginAdapter { inner: inner_plugin }))
-    }
-    
-    fn name(&self) -> &'static str {
-        "api_server"
-    }
-    
-    fn metadata(&self) -> PluginMetadata {
-        PluginMetadata {
-            name: self.name().to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            priority: 0,
-            plugin_type: PluginType::Native,
-            description: "API Server plugin for Proksi".to_string(),
-            author: "Proksi Team".to_string(),
-            homepage: Some("https://github.com/proksi/proksi".to_string()),
+    async fn create_plugin(&self, config: Arc<Config>) -> Result<Arc<dyn Plugin>> {
+        let api_config = config.plugins.as_ref()
+            .and_then(|p| p.api_server.as_ref())
+            .ok_or_else(|| PluginError::ConfigurationMissing("API server configuration not found".to_string()))?;
+
+        if !api_config.enabled {
+            return Err(PluginError::Disabled("API server plugin is disabled".to_string()));
         }
+
+        let plugin_config = ApiServerConfig {
+            listen_addr: api_config.listen_address.clone()
+                .unwrap_or_else(|| "127.0.0.1:8080".to_string()),
+            access_log: api_config.enable_access_log.unwrap_or(true),
+            cors: api_config.enable_cors.unwrap_or(true),
+        };
+
+        let plugin = ApiServerPlugin::new(plugin_config).await?;
+        let plugin = plugin.with_system_config(config);
+        let adapter = ApiServerPluginAdapter { inner: plugin };
+
+        Ok(Arc::new(adapter))
     }
-} 
+}

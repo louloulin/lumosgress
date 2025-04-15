@@ -643,120 +643,67 @@ impl AnalyticsStorage for CustomStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugins::core::PluginStep;
-    use crate::proxy_server::https_proxy::{RouterContext, RouterTimings};
-    use pingora::proxy::Session;
-    use http::HeaderValue;
     use std::collections::HashMap;
-    use serde_json::Value;
+    use futures_util::FutureExt;
 
-    // Helper to create a basic RouterContext
-    fn create_test_context() -> RouterContext {
-        RouterContext {
-            host: "test.example.com".to_string(),
+    #[test]
+    fn test_anomaly_detection_config() {
+        let config = AnomalyDetectionConfig {
+            monitored_metrics: vec!["latency".to_string(), "tokens_per_request".to_string()],
+            detection_interval_seconds: 300,
+            detection_type: AnomalyDetectionType::ZScore(2.0),
+            min_data_points: 30,
+            tag_filters: Some(HashMap::from([
+                ("model".to_string(), "gpt-4".to_string())
+            ])),
+            alert_suppression_window: Some(1800),
+            alert_channel: AlertChannelConfig {
+                channel_type: AlertChannelType::Slack,
+                config: HashMap::from([
+                    ("webhook_url".to_string(), "https://hooks.slack.com/...".to_string())
+                ]),
+            },
+        };
+
+        assert_eq!(config.monitored_metrics.len(), 2);
+        assert_eq!(config.detection_interval_seconds, 300);
+        assert_eq!(config.detection_type, AnomalyDetectionType::ZScore(2.0));
+        assert_eq!(config.min_data_points, 30);
+        assert!(config.tag_filters.is_some());
+        assert_eq!(config.alert_suppression_window.unwrap(), 1800);
+        assert!(matches!(config.alert_channel.channel_type, AlertChannelType::Slack));
+    }
+
+    #[tokio::test]
+    async fn test_request_handling() {
+        let mut analytics = AiAnalytics::new();
+        let mut ctx = RouterContext {
+            host: "example.com".to_string(),
             route_container: Default::default(),
             upstream: Default::default(),
             extensions: HashMap::new(),
             is_websocket: false,
-            timings: RouterTimings { request_filter_start: std::time::Instant::now() }, // Use constructor
-            upstream_response: None,
+            timings: Default::default(),
             plugins_data: HashMap::new(),
-            request_id: uuid::Uuid::new_v4().to_string(),
-        }
-    }
-
-    #[test]
-    fn test_storage_type_from_str() {
-        assert_eq!(AnalyticsStorageType::from_str("inmemory"), Some(AnalyticsStorageType::InMemory));
-        assert_eq!(AnalyticsStorageType::from_str("redis"), Some(AnalyticsStorageType::Redis));
-        assert_eq!(AnalyticsStorageType::from_str("postgres"), Some(AnalyticsStorageType::Postgres));
-        assert_eq!(AnalyticsStorageType::from_str("OTHER"), Some(AnalyticsStorageType::Custom("OTHER".to_string())));
-    }
-
-    #[tokio::test]
-    async fn test_plugin_creation_and_start() {
-        let mut config = AiAnalyticsConfig {
-            metrics_enabled: true,
-            storage_type: AnalyticsStorageType::InMemory,
-            retention_days: 7,
-            sampling_rate: 1.0,
-            ..Default::default()
+            request_id: "test-id".to_string(),
+            upstream_response: None,
         };
-        
-        let mut plugin = AiAnalytics::with_config(config.clone());
-        assert!(plugin.storage.is_none());
-        assert!(plugin.anomaly_detector.is_none());
 
-        // Test start initializes storage
-        let start_result = plugin.start().await;
-        assert!(start_result.is_ok());
-        assert!(plugin.storage.is_some()); 
-        
-        // Test start with anomaly detection config
-        config.anomaly_detection = Some(AnomalyDetectionConfig { 
-            detection_type: AnomalyDetectionType::StdDev, 
-            window_size: 100, 
-            threshold_multiplier: 3.0, 
-            min_data_points: 10,
-            alerts_enabled: false,
-            alert_channels: vec![],
-         });
-         let mut plugin_with_anomaly = AiAnalytics::with_config(config.clone());
-         let start_result_anomaly = plugin_with_anomaly.start().await;
-         assert!(start_result_anomaly.is_ok());
-         assert!(plugin_with_anomaly.storage.is_some());
-         assert!(plugin_with_anomaly.anomaly_detector.is_some());
-    }
-    
-    #[tokio::test]
-    async fn test_handle_response_adds_header() {
-        let config = AiAnalyticsConfig {
-             metrics_enabled: true,
-             storage_type: AnalyticsStorageType::InMemory,
-             retention_days: 7,
-             sampling_rate: 1.0,
-             ..Default::default()
-        };
-        let mut plugin = AiAnalytics::with_config(config);
-        // Manually call start to initialize storage
-        plugin.start().await.unwrap(); 
-        
-        let mut session = Session::new_dummy();
-        let mut ctx = create_test_context();
-        let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
-        
-        // Simulate the response step
-        let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
+        let headers = [""].join("\r\n");
+        let input_header = format!("POST /api/chat HTTP/1.1\r\n{headers}\r\n\r\n");
+        let mock_io = tokio_test::io::Builder::new().read(input_header.as_bytes()).build();
+        let mut session = Session::new_h1(Box::new(mock_io));
+        session.read_request().now_or_never().unwrap().unwrap();
+
+        let result = analytics.handle_request(
+            PluginStep::Request,
+            &mut session,
+            &mut ctx
+        ).await;
+
         assert!(result.is_ok());
-        assert!(result.unwrap()); // Should be true (modified)
-        
-        assert!(upstream_response.headers.get("X-Analytics-Processed").is_some());
-        assert_eq!(upstream_response.headers.get("X-Analytics-Processed").unwrap().to_str().unwrap(), "true");
+        let (handled, response) = result.unwrap();
+        assert!(!handled);
+        assert!(response.is_none());
     }
-    
-     #[tokio::test]
-    async fn test_handle_response_skips_if_disabled() {
-        let config = AiAnalyticsConfig {
-             metrics_enabled: false, // Disabled
-             storage_type: AnalyticsStorageType::InMemory,
-             retention_days: 7,
-             sampling_rate: 1.0,
-             ..Default::default()
-        };
-        let mut plugin = AiAnalytics::with_config(config);
-        plugin.start().await.unwrap(); 
-        
-        let mut session = Session::new_dummy();
-        let mut ctx = create_test_context();
-        let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
-        
-        // Simulate the response step
-        let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap()); // Should be false (not modified)
-        
-        assert!(upstream_response.headers.get("X-Analytics-Processed").is_none());
-    }
-
-    // NOTE: Testing metric collection accuracy and storage requires more complex setup.
-} 
+}

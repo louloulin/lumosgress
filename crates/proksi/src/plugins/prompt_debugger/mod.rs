@@ -299,204 +299,176 @@ impl PromptDebugger {
         let history_enabled = config.max_history_entries.map_or(false, |max| max > 0);
         let api_enabled = config.enable_api;
 
-        format!(r#"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prompt Debugger</title>
-    <style>
-        body {{ font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 1000px; margin: auto; }}
-        .container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }}
-        textarea {{ width: 100%; min-height: 200px; margin-bottom: 10px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-family: monospace; }}
-        button {{ padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 20px; }}
-        button:hover {{ background-color: #218838; }}
-        h1, h2, h3 {{ color: #333; }}
-        #results {{ background-color: #f8f9fa; padding: 15px; border-radius: 4px; border: 1px solid #dee2e6; margin-bottom: 20px; }}
-        #results h3 {{ margin-top: 0; }}
-        .rule-result {{ margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed #eee; }}
-        .rule-result:last-child {{ border-bottom: none; }}
-        .severity-Info {{ color: #17a2b8; }}
-        .severity-Warning {{ color: #ffc107; }}
-        .severity-Error {{ color: #dc3545; font-weight: bold; }}
-        #suggestions ul, #rules-list ul {{ list-style: none; padding-left: 0; }}
-        #suggestions li, #rules-list li {{ margin-bottom: 8px; }}
-        #history {{ max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; background-color: #fdfdfd; }}
-        .history-entry {{ border-bottom: 1px solid #eee; padding: 10px 0; cursor: pointer; }}
-        .history-entry:last-child {{ border-bottom: none; }}
-        .history-entry:hover {{ background-color: #f0f0f0; }}
-        .history-meta {{ font-size: 0.9em; color: #666; margin-bottom: 5px; }}
-        pre {{ background-color: #e9ecef; padding: 8px; border-radius: 3px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; }}
-    </style>
-</head>
-<body>
+        const html: &str = r#"
+        <div class="prompt-debugger-ui">
     <h1>Prompt Debugger</h1>
-    
-        <div class="container">
-        <div>
-            <h2>Analyze Prompt</h2>
-                <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
-            <button id="analyze-btn">Analyze Prompt</button>
+            <div class="container">
+                <div>
+                    <h2>Analyze Prompt</h2>
+                    <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
+                    <button id="analyze-btn">Analyze Prompt</button>
 
-            <div id="results">
-                <h3>Analysis Results</h3>
-                <div id="analysis-output">Enter a prompt and click analyze.</div>
-                    <h3>Suggestions</h3>
-                 <div id="suggestions"><ul></ul></div>
+                    <div id="results">
+                        <h3>Analysis Results</h3>
+                        <div id="analysis-output">Enter a prompt and click analyze.</div>
+                        <h3>Suggestions</h3>
+                        <div id="suggestions"><ul></ul></div>
+    </div>
+    
+                    <div id="rules-list">
+                        <h2>Active Rules</h2>
+                        <ul>{rules_html}</ul>
+            </div>
                 </div>
                 
-             <div id="rules-list">
-                 <h2>Active Rules</h2>
-                 <ul>{rules_html}</ul>
+                <div>
+                    {history_section}
+                </div>
+            </div>
         </div>
-    </div>
-    
-        <div>
-            {history_section}
-        </div>
-    </div>
-
     <script>
-        const promptInput = document.getElementById('prompt-input');
-        const analyzeBtn = document.getElementById('analyze-btn');
-        const analysisOutput = document.getElementById('analysis-output');
-        const suggestionsList = document.querySelector('#suggestions ul');
-        const historyContainer = document.getElementById('history');
-        const historyEnabled = {history_enabled};
-        const apiEnabled = {api_enabled};
-        const uiEndpoint = "{ui_endpoint}";
+            const promptInput = document.getElementById('prompt-input');
+            const analyzeBtn = document.getElementById('analyze-btn');
+            const analysisOutput = document.getElementById('analysis-output');
+            const suggestionsList = document.querySelector('#suggestions ul');
+            const historyContainer = document.getElementById('history');
+            const historyEnabled = {history_enabled};
+            const apiEnabled = {api_enabled};
+            const uiEndpoint = "{ui_endpoint}";
 
-         async function analyzePromptAPI(promptText) {{
-            if (!apiEnabled) {{
-                analysisOutput.innerHTML = '<p class="severity-Error">API is disabled in configuration.</p>';
+            async function analyzePromptAPI(promptText) {
+                if (!apiEnabled) {
+                    analysisOutput.innerHTML = '<p class="severity-Error">API is disabled in configuration.</p>';
+                    suggestionsList.innerHTML = '';
+                    return;
+                }
+                analysisOutput.textContent = 'Analyzing...';
                 suggestionsList.innerHTML = '';
-                return;
-            }}
-            analysisOutput.textContent = 'Analyzing...';
-            suggestionsList.innerHTML = '';
 
-            try {{
-                const apiUrl = `${{uiEndpoint}}/api/analyze`;
-                const response = await fetch(apiUrl, {{ 
-                    method: \'POST\',
-                    headers: {{ \'Content-Type\': \'application/json\' }},
-                    body: JSON.stringify({{ prompt: promptText }})
-                }});
+                try {
+                    const apiUrl = `${{{{uiEndpoint}}}}/api/analyze`;
+                    const response = await fetch(apiUrl, { 
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt: promptText })
+                    });
 
-                if (!response.ok) {{
-                    const errorText = await response.text();
-                    throw new Error(`API Error (${{response.status}}): ${{errorText || \'Unknown error\' }}`);
-                }}
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`API Error (${{response.status}}): ${{errorText || 'Unknown error' }}`);
+                    }
 
-                const data = await response.json();
+                    const data = await response.json();
 
-                let resultsHtml = '';
-                if (data.results && data.results.length > 0) {{
-                    resultsHtml = data.results.map(r => `\n                        <div class="rule-result">\n                            <strong class="severity-${{r.severity}}">${{r.rule_name}} (${{r.severity}}):</strong>\n                            <span>${{r.matches ? 'Matched' : 'Not Matched'}}</span><br>\n                            <em>${{escapeHtml(r.details)}}</em>\n                        </div>\n                    `).join('');
-                }} else {{
-                    resultsHtml = '<p>No rules were applied or matched.</p>';
-                }}
-                analysisOutput.innerHTML = resultsHtml;
+                    let resultsHtml = '';
+                    if (data.results && data.results.length > 0) {
+                        resultsHtml = data.results.map(r => 
+                            '<div class="rule-result">' +
+                            '<strong class="severity-' + r.severity + '">' + r.rule_name + ' (' + r.severity + '):</strong>' +
+                            '<span>' + (r.matches ? 'Matched' : 'Not Matched') + '</span><br>' +
+                            '<em>' + escapeHtml(r.details) + '</em>' +
+                            '</div>'
+                        ).join('');
+                    } else {
+                        resultsHtml = '<p>No rules were applied or matched.</p>';
+                    }
+                    analysisOutput.innerHTML = resultsHtml;
 
-                 let suggestionsHtml = '';
-                 if (data.suggestions && data.suggestions.length > 0) {{
-                     suggestionsHtml = data.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('');
-                 }} else {{
-                     suggestionsHtml = '<li>No specific suggestions based on matches.</li>';
-                 }}
-                 suggestionsList.innerHTML = suggestionsHtml;
+                    let suggestionsHtml = '';
+                    if (data.suggestions && data.suggestions.length > 0) {
+                        suggestionsHtml = data.suggestions.map(s => `<li>${{{{escapeHtml(s)}}}}</li>`).join('');
+                    } else {
+                        suggestionsHtml = '<li>No specific suggestions based on matches.</li>';
+                    }
+                    suggestionsList.innerHTML = suggestionsHtml;
 
-                 if (historyEnabled && historyContainer) {{
+                    if (historyEnabled && historyContainer) {
+                        fetchHistory();
+                    }
+
+                } catch (error) {
+                    console.error("Analysis API Error:", error);
+                    analysisOutput.innerHTML = `<p class="severity-Error">Error analyzing prompt: ${escapeHtml(error.message)}</p>`;
+                    suggestionsList.innerHTML = '';
+                }
+            }
+
+            async function fetchHistory() {
+                if (!apiEnabled || !historyEnabled || !historyContainer) return;
+
+                try {
+                    const historyUrl = `${{{{uiEndpoint}}}}/api/history`;
+                    const response = await fetch(historyUrl);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch history (${{response.status}})`);
+                    }
+                    const historyData = await response.json();
+
+                    historyContainer.innerHTML = '<h3>Analysis History</h3>';
+                    if (historyData.length === 0) {
+                        historyContainer.innerHTML += '<p>No history recorded yet.</p>';
+                    } else {
+                        historyData.reverse().forEach(entry => {
+                            const entryDiv = document.createElement('div');
+                            entryDiv.className = 'history-entry';
+                            
+                            // --- Simplified History Display --- 
+                            // Replace complex innerHTML with a placeholder to avoid format! issues
+                            const simpleMeta = `${{{{new Date(entry.timestamp).toLocaleString()}}}} - Request: ${{{{entry.request_id ? entry.request_id : 'N/A'}}}}`;
+                            entryDiv.innerHTML = `<p>${{{{escapeHtml(simpleMeta)}}}}</p>`;
+                            // --- End Simplified Display ---
+
+                            entryDiv.addEventListener('click', () => {
+                                promptInput.value = entry.original_prompt;
+                                window.scrollTo(0, 0);
+                            });
+                            historyContainer.appendChild(entryDiv);
+                        });
+                    }
+
+                } catch(error) {
+                    console.error("History API Error:", error);
+                    historyContainer.innerHTML = '<h3>Analysis History</h3><p class="severity-Error">Error loading history.</p>';
+                }
+            }
+
+            analyzeBtn.addEventListener('click', () => {
+                const promptText = promptInput.value.trim();
+                if (promptText) {
+                    analyzePromptAPI(promptText);
+                } else {
+                    analysisOutput.textContent = 'Please enter a prompt.';
+                    suggestionsList.innerHTML = '';
+                }
+            });
+
+            document.addEventListener('DOMContentLoaded', () => {
+                if (historyEnabled && historyContainer) {
                     fetchHistory();
-                 }}
+                }
+            });
 
-            }} catch (error) {{
-                console.error("Analysis API Error:", error);
-                analysisOutput.innerHTML = `<p class="severity-Error">Error analyzing prompt: ${escapeHtml(error.message)}</p>`;
-                 suggestionsList.innerHTML = '';
-            }}
-        }}
+            function escapeHtml(unsafe) {
+                if (typeof unsafe !== 'string') return '';
+                return unsafe
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+        </script>
+        "#;
 
-         async function fetchHistory() {{
-             if (!apiEnabled || !historyEnabled || !historyContainer) return;
-
-             try {{
-                const historyUrl = `${{uiEndpoint}}/api/history`;
-                const response = await fetch(historyUrl);
-                if (!response.ok) {{
-                    throw new Error(`Failed to fetch history (${{response.status}})`);
-                }}
-                const historyData = await response.json();
-
-                historyContainer.innerHTML = '<h3>Analysis History</h3>';
-                if (historyData.length === 0) {{
-                    historyContainer.innerHTML += '<p>No history recorded yet.</p>';
-                }} else {{
-                    historyData.reverse().forEach(entry => {{
-                        const entryDiv = document.createElement('div');
-                        entryDiv.className = 'history-entry';
-                        
-                        // --- Simplified History Display --- 
-                        // Replace complex innerHTML with a placeholder to avoid format! issues
-                        const simpleMeta = `${{new Date(entry.timestamp).toLocaleString()}} - Request: ${entry.request_id ? entry.request_id : 'N/A'}`;
-                        entryDiv.innerHTML = `<p>${{escapeHtml(simpleMeta)}}</p>`;
-                        // --- End Simplified Display ---
-
-                        entryDiv.addEventListener('click', () => {{
-                            promptInput.value = entry.original_prompt;
-                             window.scrollTo(0, 0);
-                        }});
-                        historyContainer.appendChild(entryDiv);
-                    }});
-                }}
-
-             }} catch(error) {{
-                 console.error("History API Error:", error);
-                 historyContainer.innerHTML = '<h3>Analysis History</h3><p class="severity-Error">Error loading history.</p>';
-             }}
-         }}
-
-         analyzeBtn.addEventListener('click', () => {{
-             const promptText = promptInput.value.trim();
-             if (promptText) {{
-                 analyzePromptAPI(promptText);
-             }} else {{
-                 analysisOutput.textContent = 'Please enter a prompt.';
-                 suggestionsList.innerHTML = '';
-             }}
-         }});
-
-         document.addEventListener('DOMContentLoaded', () => {{
-             if (historyEnabled && historyContainer) {{
-                 fetchHistory();
-             }}
-         }});
-
-        function escapeHtml(unsafe) {{
-             if (typeof unsafe !== 'string') return '';
-             return unsafe
-                  .replace(/&/g, "&amp;")
-                  .replace(/</g, "&lt;")
-                  .replace(/>/g, "&gt;")
-                  .replace(/"/g, "&quot;")
-                  .replace(/'/g, "&#039;");
-        }}
-
-    </script>
-</body>
-</html>
-        "#,
-        ui_endpoint = config.ui_endpoint,
-        rules_html = rules_html,
-        history_section = if history_enabled {
-            "<div id=\"history\"><h3>Analysis History</h3><p>Loading history...</p></div>"
-        } else {
-            "<div><h3>Analysis History</h3><p>History saving is disabled.</p></div>"
-        },
-        history_enabled = history_enabled,
-        api_enabled = api_enabled
-        )
+        html.replace("{rules_html}", &rules_html)
+            .replace("{history_section}", if history_enabled {
+                "<div id=\"history\"><h3>Analysis History</h3><p>Loading history...</p></div>"
+            } else {
+                "<div><h3>Analysis History</h3><p>History saving is disabled.</p></div>"
+            })
+            .replace("{ui_endpoint}", &config.ui_endpoint)
+            .replace("{history_enabled}", &history_enabled.to_string())
+            .replace("{api_enabled}", &api_enabled.to_string())
     }
 
     async fn handle_api_request(

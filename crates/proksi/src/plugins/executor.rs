@@ -37,7 +37,6 @@ pub async fn execute_plugins(
                     Ok((handled, response)) => {
                         if handled {
                             debug!("Plugin '{}' handled the request", plugin_name);
-                            // Potentially update metrics here
                             return Ok((true, response));
                         }
                     },
@@ -47,21 +46,17 @@ pub async fn execute_plugins(
                 }
             },
             PluginStep::Response | PluginStep::ResponseBody => {
-                // 避免多次可变借用ctx
-                let response_option = ctx.upstream_response.take();
-                if let Some(mut resp) = response_option {
-                    let result = plugin.handle_response(step, session, ctx, &mut resp).await;
-                    // 将响应重新放回ctx
-                    ctx.upstream_response = Some(resp);
-                    
-                    match result {
+                if let Some(mut resp) = ctx.upstream_response.take() {
+                    match plugin.handle_response(step, session, ctx, &mut resp).await {
                         Ok(modified) => {
                             if modified {
                                 debug!("Plugin '{}' modified the response", plugin_name);
                             }
+                            ctx.upstream_response = Some(resp);
                         },
                         Err(e) => {
                             warn!("Plugin '{}' error at step {:?}: {}", plugin_name, step, e);
+                            ctx.upstream_response = Some(resp);
                         }
                     }
                 }
@@ -126,4 +121,4 @@ pub async fn shutdown_plugins(
     }
     
     Ok(())
-} 
+}
