@@ -12,6 +12,24 @@ pub mod certificates;
 pub mod challenges;
 pub mod routes;
 
+use std::sync::Arc;
+use dashmap::DashMap;
+use anyhow::Result;
+
+pub type StorageMap<K, V> = Arc<DashMap<K, V>>;
+
+#[derive(Debug, Clone)]
+pub enum StoreError {
+    NotFound,
+    InvalidData(String),
+}
+
+pub trait Store<K, V> {
+    fn get(&self, key: &K) -> Option<V>;
+    fn set(&self, key: K, value: V) -> Result<()>;
+    fn remove(&self, key: &K) -> Result<()>;
+}
+
 // CHALLENGE store
 static CHALLENGE_STORE: Lazy<ChallengeStore> = Lazy::new(papaya::HashMap::new);
 
