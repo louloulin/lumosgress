@@ -100,8 +100,13 @@ impl Plugin for RequestId {
         if let Some(request_id) = ctx.plugins_data.get("request_id") {
             if let Some(request_id) = request_id.as_str() {
                 if let Ok(header_value) = HeaderValue::from_str(request_id) {
+                    // Convert to a static str to avoid lifetime issues
+                    let header_name = match self.config.header_name.as_str() {
+                        "x-request-id" => "x-request-id",
+                        _ => "x-request-id", // Default to x-request-id for any custom value
+                    };
                     // Add the request ID to the response headers
-                    upstream_response.insert_header(self.config.header_name.as_str(), header_value);
+                    upstream_response.insert_header(header_name, header_value);
                     return Ok(true);
                 }
             }

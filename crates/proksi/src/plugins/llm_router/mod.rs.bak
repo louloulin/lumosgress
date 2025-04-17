@@ -449,74 +449,72 @@ mod tests {
         assert!(matches!(LlmProvider::from("unknown"), LlmProvider::Custom));
     }
     
-    // TODO: Implement mock_session function to enable these tests
-    /*
     #[tokio::test]
-    async fn test_handle_request_step_request_determines_provider() {
-        let config = create_sample_config();
-        let plugin = LlmRouter::with_config(config);
-        let mut session = mock_session().await;
-        let mut ctx = create_test_context();
-
-        let result = plugin.handle_request(PluginStep::Request, &mut session, &mut ctx).await;
-        assert!(result.is_ok());
-        let (handled, response) = result.unwrap();
-        assert!(!handled);
-        assert!(response.is_none());
-
-        assert_eq!(ctx.plugins_data.get("llm_provider").unwrap(), &Value::String("openai_default".to_string()));
-        assert_eq!(ctx.plugins_data.get("llm_endpoint").unwrap(), &Value::String("chat/completions".to_string()));
-    }
+    //     async fn test_handle_request_step_request_determines_provider() {
+    //         let config = create_sample_config();
+    //         let plugin = LlmRouter::with_config(config);
+    //         let mut session = mock_session().await;
+    //         let mut ctx = create_test_context();
+    // 
+    //         let result = plugin.handle_request(PluginStep::Request, &mut session, &mut ctx).await;
+    //         assert!(result.is_ok());
+    //         let (handled, response) = result.unwrap();
+    //         assert!(!handled);
+    //         assert!(response.is_none());
+    // 
+    //         assert_eq!(ctx.plugins_data.get("llm_provider").unwrap(), &Value::String("openai_default".to_string()));
+    //         assert_eq!(ctx.plugins_data.get("llm_endpoint").unwrap(), &Value::String("chat/completions".to_string()));
+    //     }
     
     #[tokio::test]
-    async fn test_handle_request_step_proxy_upstream_modifies_headers() {
-        let config = create_sample_config();
-        let plugin = LlmRouter::with_config(config);
-        let mut session = mock_session().await;
-        let mut ctx = create_test_context();
-        
-        // Set provider info from Request step
-        ctx.plugins_data.insert("llm_provider".to_string(), Value::String("openai_default".to_string()));
-        ctx.plugins_data.insert("llm_endpoint".to_string(), Value::String("chat/completions".to_string()));
-        
-        // Set dummy API key in env
-        let api_key_env = "TEST_OPENAI_API_KEY";
-        let api_key_val = "dummy-openai-key";
-        env::set_var(api_key_env, api_key_val);
-
-        let result = plugin.handle_request(PluginStep::ProxyUpstream, &mut session, &mut ctx).await;
-        assert!(result.is_ok());
-        let (handled, response) = result.unwrap();
-        assert!(!handled);
-        assert!(response.is_none());
-
-        // Check upstream headers
-        let headers = session.req_header();
-        assert_eq!(headers.headers.get("X-LLM-Provider").unwrap().to_str().unwrap(), "openai_default");
-        assert_eq!(headers.headers.get("Authorization").unwrap().to_str().unwrap(), &format!("Bearer {}", api_key_val));
-        
-        // Clean up env var
-        env::remove_var(api_key_env);
-    }
+    //     async fn test_handle_request_step_proxy_upstream_modifies_headers() {
+    //         let config = create_sample_config();
+    //         let plugin = LlmRouter::with_config(config);
+    //         let mut session = mock_session().await;
+    //         let mut ctx = create_test_context();
+    //         
+    //         // Set provider info from Request step
+    //         ctx.plugins_data.insert("llm_provider".to_string(), Value::String("openai_default".to_string()));
+    //         ctx.plugins_data.insert("llm_endpoint".to_string(), Value::String("chat/completions".to_string()));
+    //         
+    //         // Set dummy API key in env
+    //         let api_key_env = "TEST_OPENAI_API_KEY";
+    //         let api_key_val = "dummy-openai-key";
+    //         env::set_var(api_key_env, api_key_val);
+    // 
+    //         let result = plugin.handle_request(PluginStep::ProxyUpstream, &mut session, &mut ctx).await;
+    //         assert!(result.is_ok());
+    //         let (handled, response) = result.unwrap();
+    //         assert!(!handled);
+    //         assert!(response.is_none());
+    // 
+    //         // Check upstream headers
+    //         let headers = session.req_header();
+    //         assert_eq!(headers.headers.get("X-LLM-Provider").unwrap().to_str().unwrap(), "openai_default");
+    //         assert_eq!(headers.headers.get("Authorization").unwrap().to_str().unwrap(), &format!("Bearer {}", api_key_val));
+    //         
+    //         // Clean up env var
+    //         env::remove_var(api_key_env);
+    //     }
     
     #[tokio::test]
-    async fn test_handle_response_step_response_adds_header() {
-        let config = create_sample_config();
-        let plugin = LlmRouter::with_config(config);
-        let mut session = mock_session().await;
-        let mut ctx = create_test_context();
-        let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
-        
-        // Set provider info from Request step
-        ctx.plugins_data.insert("llm_provider".to_string(), Value::String("anthropic_special".to_string()));
-        
-        let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap()); // Should return true indicating modification
-        
-        // Check response headers
-        assert_eq!(upstream_response.headers.get("X-LLM-Provider-Used").unwrap().to_str().unwrap(), "anthropic_special");
-    }
+    //     async fn test_handle_response_step_response_adds_header() {
+    //         let config = create_sample_config();
+    //         let plugin = LlmRouter::with_config(config);
+    //         let mut session = mock_session().await;
+    //         let mut ctx = create_test_context();
+    //         let mut upstream_response = ResponseHeader::build(200, Some(4)).unwrap();
+    //         
+    //         // Set provider info from Request step
+    //         ctx.plugins_data.insert("llm_provider".to_string(), Value::String("anthropic_special".to_string()));
+    //         
+    //         let result = plugin.handle_response(PluginStep::Response, &mut session, &mut ctx, &mut upstream_response).await;
+    //         assert!(result.is_ok());
+    //         assert!(result.unwrap()); // Should return true indicating modification
+    //         
+    //         // Check response headers
+    //         assert_eq!(upstream_response.headers.get("X-LLM-Provider-Used").unwrap().to_str().unwrap(), "anthropic_special");
+    //     }
     
     #[tokio::test]
     async fn test_handle_response_step_other_does_nothing() {
@@ -535,5 +533,4 @@ mod tests {
         
         assert!(upstream_response.headers.get("X-LLM-Provider-Used").is_none());
     }
-    */
 } 
