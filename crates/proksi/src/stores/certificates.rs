@@ -1,16 +1,15 @@
 use openssl::pkey::{PKey, Private};
 use openssl::x509::X509;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use anyhow::Result;
 
-use super::{Store, StoreError};
+use super::Store;
 
 // Custom serialization wrappers for OpenSSL types
 mod openssl_serde {
     use openssl::pkey::{PKey, Private};
     use openssl::x509::X509;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{Deserialize, Deserializer, Serializer};
     use std::sync::Arc;
 
     pub fn serialize_pkey<S>(key: &PKey<Private>, serializer: S) -> Result<S::Ok, S::Error>

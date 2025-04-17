@@ -1,19 +1,17 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use http::StatusCode;
-use pingora::{http::{RequestHeader, ResponseHeader}, proxy::Session};
+use pingora::{http::ResponseHeader, proxy::Session};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use bytes;
 use serde_json::Value;
 use tracing::{error, info, warn};
-use html_escape;
 
 use crate::{
-    config::RoutePlugin,
     plugins::core::{Plugin, PluginError, PluginStep},
     proxy_server::{https_proxy::RouterContext, HttpResponse},
 };

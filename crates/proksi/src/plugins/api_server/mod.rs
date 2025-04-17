@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -12,7 +11,6 @@ use axum::{
     routing::get,
     Router, 
     extract::State,
-    http::StatusCode,
     response::{Json, IntoResponse},
 };
 use tokio::sync::Mutex;
@@ -117,7 +115,7 @@ impl Plugin for ApiServerPlugin {
             data: Arc::new(Mutex::new(HashMap::new())),
         };
 
-        let mut router = Router::new()
+        let router = Router::new()
             .route("/health", get(health_handler))
             .route("/metrics", get(metrics_handler))
             .route("/config", get(config_handler))

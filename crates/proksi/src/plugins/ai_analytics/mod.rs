@@ -1,24 +1,17 @@
 use std::sync::Arc;
 use anyhow::Result;
 use pingora::proxy::Session;
-use serde_json::Value;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use chrono::{DateTime, Utc, Duration};
 use std::collections::HashMap;
 use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
-use pingora::http::{RequestHeader, ResponseHeader};
-use pingora::http::StatusCode;
-use bytes;
+use pingora::http::ResponseHeader;
 use std::fmt::Debug;
 
-use crate::{
-    config::RoutePlugin,
-    proxy_server::https_proxy::RouterContext,
-};
+use crate::proxy_server::https_proxy::RouterContext;
 
 // Import new Plugin trait and related types
 use crate::plugins::core::{Plugin, PluginError, PluginStep};

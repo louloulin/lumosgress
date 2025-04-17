@@ -1,27 +1,22 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
-use http::{HeaderValue, StatusCode};
-use once_cell::sync::Lazy;
+use http::HeaderValue;
 use pingora::{
-    http::{RequestHeader, ResponseHeader},
+    http::ResponseHeader,
     proxy::Session,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::info;
 
 // Import new Plugin trait and related types
 use crate::plugins::core::{Plugin, PluginError, PluginStep};
 use crate::proxy_server::HttpResponse;
 
-use crate::{
-    config::RoutePlugin,
-    plugins::get_required_config,
-    proxy_server::https_proxy::RouterContext,
-};
+use crate::proxy_server::https_proxy::RouterContext;
 
 // 聚合策略
 #[derive(Debug, Clone, Serialize, Deserialize)]

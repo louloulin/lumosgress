@@ -1,20 +1,19 @@
-use std::{borrow::Cow, collections::HashMap, net::SocketAddr, sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
-use std::any::Any;
+use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use bytes;
 use chrono::{DateTime, Utc};
 use http::StatusCode;
-use pingora::{http::{RequestHeader, ResponseHeader}, proxy::Session};
+use pingora::{http::ResponseHeader, proxy::Session};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::{config::RoutePlugin, plugins::core::{Plugin, PluginError, PluginStep}, proxy_server::{https_proxy::RouterContext, HttpResponse}};
+use crate::{plugins::core::{Plugin, PluginError, PluginStep}, proxy_server::{https_proxy::RouterContext, HttpResponse}};
 
 // Performance metrics for a request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,7 +182,7 @@ impl PerformanceAnalyzer {
              return Ok(()); // Not sampled or context missing
          }
 
-         let mut perf_ctx: PerformancePluginContext = serde_json::from_value(perf_ctx_val.unwrap().clone())?;
+         let perf_ctx: PerformancePluginContext = serde_json::from_value(perf_ctx_val.unwrap().clone())?;
 
          if !perf_ctx.is_sampled {
               debug!("Request ID {} was not sampled, skipping metrics finalization.", ctx.request_id);

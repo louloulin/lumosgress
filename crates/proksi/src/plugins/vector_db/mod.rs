@@ -1,26 +1,20 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
-use anyhow::{anyhow, Result};
+use std::{collections::HashMap, sync::Arc};
+use anyhow::Result;
 use async_trait::async_trait;
-use http::HeaderValue;
-use once_cell::sync::Lazy;
 use pingora::{
-    http::{RequestHeader, ResponseHeader},
+    http::ResponseHeader,
     proxy::Session,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{info, warn, debug, error};
+use tracing::{info, debug, error};
 use bytes;
 
 use crate::plugins::core::{Plugin, PluginError, PluginStep};
 use crate::proxy_server::HttpResponse;
 
-use crate::{
-    config::RoutePlugin,
-    plugins::get_required_config,
-    proxy_server::https_proxy::RouterContext,
-};
+use crate::proxy_server::https_proxy::RouterContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VectorDbConfig {
@@ -85,7 +79,7 @@ impl VectorDb {
 
     async fn get_client(&self) -> Result<Box<dyn VectorDbClient>> {
         let client_key = format!("{:?}_{}", self.config.provider, self.config.collection);
-        let mut clients = self.clients.lock().await;
+        let clients = self.clients.lock().await;
         
         if let Some(client) = clients.get(&client_key) {
             // Need a way to return a clone or handle the lifetime

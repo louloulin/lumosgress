@@ -1,12 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::HeaderValue;
-use once_cell::sync::Lazy;
 use pingora::{
-    http::{RequestHeader, ResponseHeader},
+    http::ResponseHeader,
     proxy::Session,
 };
 use serde::{Deserialize, Serialize};
@@ -17,11 +16,7 @@ use tracing::{debug, error, info, warn};
 use crate::plugins::core::{Plugin, PluginError, PluginStep};
 use crate::proxy_server::HttpResponse;
 
-use crate::{
-    config::RoutePlugin,
-    plugins::get_required_config,
-    proxy_server::https_proxy::RouterContext,
-};
+use crate::proxy_server::https_proxy::RouterContext;
 
 // 提示转换类型
 #[derive(Debug, Clone, Serialize, Deserialize)]

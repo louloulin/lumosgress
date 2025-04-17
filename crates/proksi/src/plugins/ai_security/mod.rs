@@ -1,23 +1,17 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderValue, StatusCode};
-use once_cell::sync::Lazy;
 use pingora::{
-    http::{RequestHeader, ResponseHeader},
+    http::ResponseHeader,
     proxy::Session,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{error, info, warn, debug};
 
-use crate::{
-    config::RoutePlugin,
-    plugins::get_required_config,
-    proxy_server::https_proxy::RouterContext,
-};
+use crate::proxy_server::https_proxy::RouterContext;
 
 // Import new Plugin trait and related types
 use crate::plugins::core::{Plugin, PluginError, PluginStep};

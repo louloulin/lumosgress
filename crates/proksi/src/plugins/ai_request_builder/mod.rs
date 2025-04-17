@@ -1,9 +1,9 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use pingora::{http::{RequestHeader, ResponseHeader}, proxy::Session};
+use pingora::{http::ResponseHeader, proxy::Session};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use bytes;

@@ -1,18 +1,17 @@
-use std::sync::Arc;
 use std::fmt;
 
 use async_trait::async_trait;
 use http::{header, StatusCode};
 use openssl::base64;
 use pingora::{
-    http::{RequestHeader, ResponseHeader},
+    http::ResponseHeader,
     proxy::Session,
 };
 use crate::proxy_server::HttpResponse;
 use serde::Deserialize;
 
 use crate::{proxy_server::https_proxy::RouterContext};
-use super::core::{Plugin, PluginStep, PluginError, PluginMetadata, PluginType};
+use super::core::{Plugin, PluginStep, PluginError};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BasicAuthConfig {

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use dashmap::DashMap;
-use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use anyhow::Result;
 

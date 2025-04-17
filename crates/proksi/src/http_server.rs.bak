@@ -2,7 +2,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use pingora::server::{ListenFds, ShutdownWatch};
 use async_trait::async_trait;
-use pingora::services::Service;
+use pingora_core::services::Service;
 
 use crate::config::Config;
 use crate::plugins::manager::PluginManager;

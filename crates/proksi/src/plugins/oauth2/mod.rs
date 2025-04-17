@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use cookie::Cookie;
 use http::StatusCode;
 use once_cell::sync::Lazy;
-use pingora::http::{RequestHeader, ResponseHeader};
+use pingora::http::ResponseHeader;
 use pingora::proxy::Session;
 use serde::{Deserialize, Serialize};
 

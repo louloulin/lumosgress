@@ -1,10 +1,8 @@
-use std::borrow::Cow;
-
-use anyhow::{Result, Error};
+use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use pingora::proxy::Session;
-use pingora::http::{RequestHeader, ResponseHeader};
+use pingora::http::ResponseHeader;
 use http::HeaderValue;
 use serde_json::json;
 
@@ -103,7 +101,7 @@ impl Plugin for RequestId {
             if let Some(request_id) = request_id.as_str() {
                 if let Ok(header_value) = HeaderValue::from_str(request_id) {
                     // Add the request ID to the response headers
-                    upstream_response.insert_header("x-request-id", header_value);
+                    upstream_response.insert_header(self.config.header_name.as_str(), header_value);
                     return Ok(true);
                 }
             }

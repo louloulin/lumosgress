@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 use async_trait::async_trait;
-use pingora::{http::{RequestHeader, ResponseHeader}, proxy::Session};
+use pingora::{http::ResponseHeader, proxy::Session};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;

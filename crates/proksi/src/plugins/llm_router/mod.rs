@@ -1,11 +1,10 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use http::HeaderValue;
-use once_cell::sync::Lazy;
 use pingora::{
-    http::{RequestHeader, ResponseHeader},
+    http::ResponseHeader,
     proxy::Session,
 };
 use serde::{Deserialize, Serialize};
@@ -15,12 +14,7 @@ use tracing::{info, warn};
 use crate::plugins::core::{Plugin, PluginError, PluginStep};
 use crate::proxy_server::HttpResponse;
 
-use crate::{
-    config::RoutePlugin,
-    plugins::get_required_config,
-    proxy_server::https_proxy::RouterContext,
-    proxy_server::https_proxy::RouterTimings,
-};
+use crate::proxy_server::https_proxy::RouterContext;
 
 // 支持的LLM提供商
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -398,7 +392,6 @@ mod tests {
     use std::env; // For setting env vars in tests
     use http::HeaderMap;
     use crate::proxy_server::https_proxy::RouterTimings;
-    use pingora::test::mock_session;
     use http::Response;
     use http::StatusCode;
 

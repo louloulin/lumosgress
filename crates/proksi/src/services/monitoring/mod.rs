@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use crate::config::{AlertChannelType, Config, MetricConfig, MonitoringConfig};
+use crate::config::{AlertChannelType, Config, MetricConfig};
 
 /// The monitoring service responsible for collecting metrics and sending alerts
 pub struct MonitoringService {

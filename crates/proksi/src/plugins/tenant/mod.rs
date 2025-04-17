@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use async_trait::async_trait;
 use crate::plugins::{Plugin, PluginError};
-use crate::models::tenant::{Tenant, TenantStatus, ResourceQuota, ResourceUsage};
+use crate::models::tenant::{Tenant, ResourceQuota};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TenantPluginConfig {
