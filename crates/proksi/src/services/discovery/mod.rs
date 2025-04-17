@@ -250,9 +250,12 @@ fn add_route_to_router(
                         header: None,
                     });
                 } else if let Some(ref mut matcher) = route_store_container.match_with {
-                    matcher.path = Some(RoutePathMatcher {
-                        patterns: pattern.clone(),
-                    });
+                    *matcher = RouteMatcher {
+                        path: Some(RoutePathMatcher {
+                            patterns: pattern.clone(),
+                        }),
+                        header: matcher.header.clone(),
+                    };
                 }
             }
             _ => {}

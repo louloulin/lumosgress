@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use anyhow::Result;
 use pingora::proxy::ProxyHttp;
+use pingora::server::{ListenFds, ShutdownWatch};
+use async_trait::async_trait;
 use pingora_core::services::Service;
 
 use crate::config::Config;
@@ -20,4 +22,21 @@ pub fn create_server(
 pub struct HttpServer {
     config: Arc<Config>,
     plugin_manager: Arc<PluginManager>,
+}
+
+#[async_trait]
+impl Service for HttpServer {
+    async fn start_service(&mut self, _fds: Option<ListenFds>, _shutdown: ShutdownWatch) {
+        // Implement the actual service start logic here
+        // This is a placeholder implementation
+        tracing::info!("HTTP Server starting...");
+    }
+
+    fn name(&self) -> &'static str {
+        "http_server"
+    }
+
+    fn threads(&self) -> Option<usize> {
+        Some(4)  // Default to 4 threads
+    }
 }
