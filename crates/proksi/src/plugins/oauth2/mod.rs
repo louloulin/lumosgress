@@ -333,10 +333,10 @@ impl Plugin for Oauth2 {
     
     async fn handle_response(
         &self,
-        _step: PluginStep,
-        _session: &mut Session,
+        step: PluginStep,
+        session: &mut Session,
         _ctx: &mut RouterContext,
-        _upstream_response: &mut ResponseHeader,
+        upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
         // No response handling needed
         Ok(false)

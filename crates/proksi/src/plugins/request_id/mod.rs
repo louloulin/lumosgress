@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use pingora::proxy::Session;
 use pingora::http::{RequestHeader, ResponseHeader};
+use http::HeaderValue;
+use serde_json::json;
 
 use crate::proxy_server::https_proxy::RouterContext;
 use crate::proxy_server::HttpResponse;
@@ -62,48 +64,51 @@ impl Plugin for RequestId {
         "request_id"
     }
     
+    /// Generate a unique request ID and add it to the context
     async fn handle_request(
         &self,
-        step: PluginStep,
-        session: &mut Session,
+        _step: PluginStep,
+        _session: &mut Session,
         ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
-        // Only process in the Request step
-        if step != PluginStep::Request || !self.config.enabled {
-            return Ok((false, None));
-        }
-        
-        // Generate a new request ID using UUID v4
-        let request_id = Uuid::new_v4().to_string();
-        
-        // Store in the context for later use
-        ctx.request_id = request_id.clone();
-        
-        // Also store in extensions for backward compatibility
-        ctx.extensions
-            .insert(Cow::Borrowed("request_id_header"), request_id);
+        let request_id = ctx.plugins_data.get("request_id");
+
+        if request_id.is_none() {
+            // Generate a UUID for the request ID
+            let uuid = Uuid::new_v4().to_string();
             
+            // Store the request ID in the context
+            ctx.plugins_data.insert("request_id".to_string(), json!(uuid));
+        }
+
+        // Continue processing
         Ok((false, None))
     }
     
+    /// Add the request ID to the response headers
     async fn handle_response(
         &self,
-        step: PluginStep,
-        session: &mut Session,
+        _step: PluginStep,
+        _session: &mut Session,
         ctx: &mut RouterContext,
         upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
-        if step != PluginStep::Response {
+        // Only add the header if the plugin is enabled
+        if !self.config.enabled {
             return Ok(false);
         }
-        if let Some(request_id_val) = ctx.plugins_data.get("request_id") {
-            if let Some(request_id_str) = request_id_val.as_str() {
-                // Fix lifetime error: Clone both the header name and request_id to own them
-                let header_name = self.config.header_name.clone();
-                upstream_response.insert_header(header_name, request_id_str.to_string())?;
-                return Ok(true);
+
+        // Get the request ID from the context
+        if let Some(request_id) = ctx.plugins_data.get("request_id") {
+            if let Some(request_id) = request_id.as_str() {
+                if let Ok(header_value) = HeaderValue::from_str(request_id) {
+                    // Add the request ID to the response headers
+                    upstream_response.insert_header("x-request-id", header_value);
+                    return Ok(true);
+                }
             }
         }
+
         Ok(false)
     }
     
@@ -114,4 +119,4 @@ impl Plugin for RequestId {
     async fn stop(&mut self) -> Result<(), PluginError> {
         Ok(())
     }
-}
+} 

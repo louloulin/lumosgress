@@ -145,9 +145,9 @@ pub trait Plugin: Send + Sync + Debug {
     /// - `response`: optional HTTP response to return to the client
     async fn handle_request(
         &self,
-        step: PluginStep,
-        session: &mut Session,
-        ctx: &mut RouterContext,
+        _step: PluginStep,
+        _session: &mut Session,
+        _ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
         // Default implementation: pass through
         Ok((false, None))
@@ -159,10 +159,10 @@ pub trait Plugin: Send + Sync + Debug {
     /// - `modified`: true if the response was modified
     async fn handle_response(
         &self,
-        step: PluginStep,
-        session: &mut Session,
-        ctx: &mut RouterContext,
-        upstream_response: &mut ResponseHeader,
+        _step: PluginStep,
+        _session: &mut Session,
+        _ctx: &mut RouterContext,
+        _upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
         // Default implementation: pass through
         Ok(false)

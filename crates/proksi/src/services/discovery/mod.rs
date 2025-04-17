@@ -16,7 +16,7 @@ use tokio::sync::broadcast::Sender;
 use crate::config::{Route, RouteCache, RouteUpstream};
 use crate::MsgRoute;
 use crate::{
-    config::{Config, RouteHeader, RouteMatcher, RoutePathMatcher, RoutePlugin},
+    config::{Config, RouteHeader, RouteHeaderAdd, RouteHeaderRemove, RouteMatcher, RoutePathMatcher, RoutePlugin},
     stores::{self, routes::RouteStoreContainer},
     MsgProxy,
 };
@@ -75,9 +75,16 @@ impl RoutingService {
             });
         }
 
+        // Convert the header types to match the expected types
         let route_header = RouteHeader {
-            add: Some(route.host_headers_add),
-            remove: Some(route.host_headers_remove),
+            add: Some(route.host_headers_add
+                .into_iter()
+                .map(|(name, value)| RouteHeaderAdd { name, value })
+                .collect()),
+            remove: Some(route.host_headers_remove
+                .into_iter()
+                .map(|name| RouteHeaderRemove { name })
+                .collect()),
         };
 
         // create route upstreams from ip + port
@@ -300,9 +307,11 @@ fn add_route_ssl_to_store(route: &Route) -> Result<(), anyhow::Error> {
     stores::insert_certificate(
         route.host.to_string(),
         stores::certificates::Certificate {
+            cert: Arc::new(pem.clone()),
             key,
-            leaf: pem,
-            chain: None,
+            domains: vec![route.host.to_string()],
+            leaf_cert: Some(pem),
+            cert_chain: None,
         },
     );
 

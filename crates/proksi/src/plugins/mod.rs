@@ -1,17 +1,11 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use basic_auth::{BasicAuth, BasicAuthConfig};
 use oauth2::Oauth2;
 use once_cell::sync::Lazy;
-use pingora::http::{RequestHeader, ResponseHeader};
-use pingora::proxy::Session;
 use request_id::RequestId;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-use crate::{config::RoutePlugin, proxy_server::https_proxy::RouterContext};
 
 // 新的插件系统模块
 pub mod core;
@@ -38,16 +32,6 @@ pub mod tenant;
 pub mod compliance;
 pub mod manager;
 
-use llm_router::LlmRouter;
-use prompt_transform::PromptTransformer;
-use ai_security::AiSecurity;
-use llm_aggregator::LlmAggregator;
-use vector_db::VectorDb;
-use ai_analytics::AiAnalytics;
-use ai_request_builder::AiRequestBuilder;
-use prompt_debugger::PromptDebugger;
-use performance_analyzer::PerformanceAnalyzer;
-
 // 重新导出新的插件接口
 pub use core::{Plugin, PluginType, PluginStep, PluginError, 
                PluginFactory, PluginMetadata, PluginRegistry};
@@ -62,15 +46,15 @@ pub(crate) struct ProxyPlugins {
     pub oauth2: Lazy<Oauth2>,
     pub request_id: Lazy<request_id::RequestId>,
     
-    pub llm_router: Lazy<LlmRouter>,
-    pub prompt_transform: Lazy<PromptTransformer>,
-    pub ai_security: Lazy<AiSecurity>,
-    pub llm_aggregator: Lazy<LlmAggregator>,
-    pub vector_db: Lazy<VectorDb>,
-    pub ai_analytics: Lazy<AiAnalytics>,
-    pub ai_request_builder: Lazy<AiRequestBuilder>,
-    pub prompt_debugger: Lazy<PromptDebugger>,
-    pub performance_analyzer: Lazy<PerformanceAnalyzer>,
+    pub llm_router: Lazy<llm_router::LlmRouter>,
+    pub prompt_transform: Lazy<prompt_transform::PromptTransformer>,
+    pub ai_security: Lazy<ai_security::AiSecurity>,
+    pub llm_aggregator: Lazy<llm_aggregator::LlmAggregator>,
+    pub vector_db: Lazy<vector_db::VectorDb>,
+    pub ai_analytics: Lazy<ai_analytics::AiAnalytics>,
+    pub ai_request_builder: Lazy<ai_request_builder::AiRequestBuilder>,
+    pub prompt_debugger: Lazy<prompt_debugger::PromptDebugger>,
+    pub performance_analyzer: Lazy<performance_analyzer::PerformanceAnalyzer>,
 }
 
 /// Static plugin registry (plugins that don't generate a new instance for each request)
@@ -82,15 +66,15 @@ pub static PLUGINS: Lazy<ProxyPlugins> = Lazy::new(|| ProxyPlugins {
     oauth2: Lazy::new(Oauth2::new),
     request_id: Lazy::new(RequestId::new),
     
-    llm_router: Lazy::new(LlmRouter::new),
-    prompt_transform: Lazy::new(PromptTransformer::new),
-    ai_security: Lazy::new(AiSecurity::new),
-    llm_aggregator: Lazy::new(LlmAggregator::new),
-    vector_db: Lazy::new(VectorDb::new),
-    ai_analytics: Lazy::new(AiAnalytics::new),
-    ai_request_builder: Lazy::new(AiRequestBuilder::new),
-    prompt_debugger: Lazy::new(PromptDebugger::new),
-    performance_analyzer: Lazy::new(PerformanceAnalyzer::new),
+    llm_router: Lazy::new(llm_router::LlmRouter::new),
+    prompt_transform: Lazy::new(prompt_transform::PromptTransformer::new),
+    ai_security: Lazy::new(ai_security::AiSecurity::new),
+    llm_aggregator: Lazy::new(llm_aggregator::LlmAggregator::new),
+    vector_db: Lazy::new(vector_db::VectorDb::new),
+    ai_analytics: Lazy::new(ai_analytics::AiAnalytics::new),
+    ai_request_builder: Lazy::new(ai_request_builder::AiRequestBuilder::new),
+    prompt_debugger: Lazy::new(prompt_debugger::PromptDebugger::new),
+    performance_analyzer: Lazy::new(performance_analyzer::PerformanceAnalyzer::new),
 });
 
 /// Get a required configuration value from a plugin config

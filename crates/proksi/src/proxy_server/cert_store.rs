@@ -47,11 +47,13 @@ impl TlsAccept for CertStore {
             return;
         };
 
+        ext::ssl_use_certificate(ssl, &cert.leaf_cert.as_ref().unwrap_or(&cert.cert)).unwrap();
         ext::ssl_use_private_key(ssl, &cert.key).unwrap();
-        ext::ssl_use_certificate(ssl, &cert.leaf).unwrap();
 
-        if let Some(chain) = &cert.chain {
-            ext::ssl_add_chain_cert(ssl, chain).unwrap();
+        if let Some(chain) = cert.chain() {
+            for cert in chain.iter() {
+                ext::ssl_add_chain_cert(ssl, cert).unwrap();
+            }
         }
     }
 }

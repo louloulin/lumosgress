@@ -430,11 +430,19 @@ impl LabelService {
             // Notify the route discovery service of the new host
             self.sender
                 .send(MsgProxy::NewRoute(MsgRoute {
-                    host: host_value,
+                    host: host_value.to_string(),
                     upstreams: value.upstreams,
                     path_matchers: value.path_matchers,
-                    host_headers_add: value.host_header_add.unwrap_or_else(Vec::new),
-                    host_headers_remove: value.host_header_remove.unwrap_or_else(Vec::new),
+                    host_headers_add: value.host_header_add
+                        .unwrap_or_else(Vec::new)
+                        .into_iter()
+                        .map(|h| (Cow::Owned(h.name.to_string()), Cow::Owned(h.value.to_string())))
+                        .collect(),
+                    host_headers_remove: value.host_header_remove
+                        .unwrap_or_else(Vec::new)
+                        .into_iter()
+                        .map(|h| Cow::Owned(h.name.to_string()))
+                        .collect(),
                     plugins: value.plugins.unwrap_or_else(Vec::new),
 
                     self_signed_certs: value.ssl_certificate_self_signed_on_failure,

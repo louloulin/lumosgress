@@ -2,12 +2,14 @@ use std::borrow::Cow;
 use crate::config::RoutePlugin;
 
 /// Message types for internal communication
+#[derive(Debug, Clone)]
 pub enum MsgProxy {
     /// Message for new routes being added
     NewRoute(MsgRoute),
 }
 
 /// Route message structure for internal communication
+#[derive(Debug, Clone)]
 pub struct MsgRoute {
     /// The host name for this route
     pub host: String,

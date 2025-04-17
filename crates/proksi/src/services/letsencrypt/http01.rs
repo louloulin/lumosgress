@@ -73,7 +73,13 @@ impl LetsencryptService {
 
         let key = Self::parse_private_key(key_pem)?;
 
-        stores::insert_certificate(domain.to_string(), Certificate { key, leaf, chain });
+        stores::insert_certificate(domain.to_string(), Certificate {
+            cert: Arc::new(leaf.clone()),
+            key,
+            domains: vec![domain.to_string()],
+            leaf_cert: Some(leaf),
+            cert_chain: chain.map(|c| vec![c]),
+        });
 
         Ok(())
     }
@@ -141,9 +147,11 @@ impl LetsencryptService {
         stores::insert_certificate(
             domain.to_string(),
             Certificate {
+                cert: Arc::new(openssl_cert.clone()),
                 key,
-                leaf: openssl_cert,
-                chain: None,
+                domains: vec![domain.to_string()],
+                leaf_cert: Some(openssl_cert),
+                cert_chain: None,
             },
         );
 

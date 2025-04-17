@@ -676,7 +676,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_request_handling() {
-        let mut analytics = AiAnalytics::new();
+        let analytics = AiAnalytics::new();
         let mut ctx = RouterContext {
             host: "example.com".to_string(),
             route_container: Default::default(),
