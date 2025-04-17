@@ -5,6 +5,7 @@ use pingora::proxy::Session;
 use pingora::http::ResponseHeader;
 use http::HeaderValue;
 use serde_json::json;
+use std::borrow::Cow;
 
 use crate::proxy_server::https_proxy::RouterContext;
 use crate::proxy_server::HttpResponse;
@@ -69,14 +70,18 @@ impl Plugin for RequestId {
         _session: &mut Session,
         ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
-        let request_id = ctx.plugins_data.get("request_id");
+        // Only generate request ID if the plugin is enabled
+        if !self.config.enabled {
+            return Ok((false, None));
+        }
 
-        if request_id.is_none() {
-            // Generate a UUID for the request ID
+        // Generate a UUID for the request ID if it's empty
+        if ctx.request_id.is_empty() {
             let uuid = Uuid::new_v4().to_string();
+            ctx.request_id = uuid.clone();
             
-            // Store the request ID in the context
-            ctx.plugins_data.insert("request_id".to_string(), json!(uuid));
+            // Also store in extensions for tests to check
+            ctx.extensions.insert(Cow::Borrowed("request_id_header"), uuid);
         }
 
         // Continue processing
@@ -97,18 +102,15 @@ impl Plugin for RequestId {
         }
 
         // Get the request ID from the context
-        if let Some(request_id) = ctx.plugins_data.get("request_id") {
-            if let Some(request_id) = request_id.as_str() {
-                if let Ok(header_value) = HeaderValue::from_str(request_id) {
-                    // Convert to a static str to avoid lifetime issues
-                    let header_name = match self.config.header_name.as_str() {
-                        "x-request-id" => "x-request-id",
-                        _ => "x-request-id", // Default to x-request-id for any custom value
-                    };
-                    // Add the request ID to the response headers
-                    upstream_response.insert_header(header_name, header_value);
-                    return Ok(true);
-                }
+        if !ctx.request_id.is_empty() {
+            if let Ok(header_value) = HeaderValue::from_str(&ctx.request_id) {
+                // Create a local String variable to avoid lifetime issues
+                let header_name = self.config.header_name.clone();
+                
+                // Add the request ID to the response headers using the header string 
+                // directly, not as a reference
+                upstream_response.insert_header(header_name, header_value)?;
+                return Ok(true);
             }
         }
 
@@ -122,4 +124,4 @@ impl Plugin for RequestId {
     async fn stop(&mut self) -> Result<(), PluginError> {
         Ok(())
     }
-} 
+}
