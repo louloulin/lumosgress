@@ -541,6 +541,49 @@ impl PromptDebugger {
             Ok(response_header)
         }
     }
+
+    async fn handle_intercept(
+        &self,
+        session: &mut Session,
+        ctx: &mut RouterContext,
+        _config: &PromptDebuggerConfig,
+    ) -> Result<(bool, Option<HttpResponse>)> {
+        // We'll use a different approach that doesn't rely on reading and writing the request body
+        // Since it seems the Session doesn't easily allow us to restore the body after reading
+
+        // Instead, we'll work with the request as-is, assuming any necessary data can be 
+        // obtained from the request headers or context
+        
+        // Check if this might be an LLM/AI request based on path or headers
+        let req = session.req_header();
+        let path = req.uri.path();
+        let content_type = req.headers.get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        
+        // Simple heuristic: Check if this looks like an API call to an LLM service
+        let is_potential_llm_request = 
+            (path.contains("/v1/") && path.contains("completions")) || 
+            path.contains("chat") || 
+            path.contains("generate") ||
+            content_type.contains("application/json");
+        
+        if !is_potential_llm_request {
+            return Ok((false, None));
+        }
+        
+        // For requests that seem like they might be LLM requests,
+        // we'll set a flag in the context that we'll check in handle_response
+        ctx.plugins_data.insert(
+            "prompt_debugger_intercept".to_string(),
+            serde_json::to_value(true)?,
+        );
+        
+        // We don't stop the request here - we'll defer actual prompt extraction to handle_response
+        // where we can analyze the prompt and response together
+        
+        Ok((false, None))
+    }
 }
 
 #[async_trait]
@@ -582,18 +625,32 @@ impl Plugin for PromptDebugger {
                 
             if path_suffix.is_empty() || path_suffix == "index.html" {
                 match self.serve_ui(session, &config).await {
-                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Ok(response) => {
+                        let http_response = HttpResponse {
+                            status_code: response.status,
+                            headers: response.headers.clone(),
+                            body: bytes::Bytes::new(), // Body was already written in serve_ui
+                        };
+                        return Ok((true, Some(http_response)));
+                    },
                     Err(e) => {
                         error!("Failed to serve UI: {}", e);
                         return Ok((false, None));
                     }
                 }
-    }
+            }
 
-    // Handle API requests
+            // Handle API requests
             if path_suffix.starts_with("api/") {
                 match self.handle_api_request(session, path_suffix, &config).await {
-                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Ok(response) => {
+                        let http_response = HttpResponse {
+                            status_code: response.status,
+                            headers: response.headers.clone(),
+                            body: bytes::Bytes::new(), // Body was already written in handle_api_request
+                        };
+                        return Ok((true, Some(http_response)));
+                    },
                     Err(e) => {
                         error!("Failed to handle API request: {}", e);
                         return Ok((false, None));

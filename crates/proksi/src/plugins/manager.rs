@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use anyhow::Result;
 
-use crate::plugins::{Plugin, PluginConfig, PluginError};
+use crate::plugins::{Plugin, PluginError};
 
 // Global plugin manager instance
 static PLUGIN_MANAGER: Lazy<PluginManager> = Lazy::new(PluginManager::new);

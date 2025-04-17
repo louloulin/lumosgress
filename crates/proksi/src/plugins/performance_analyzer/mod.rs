@@ -547,7 +547,14 @@ impl Plugin for PerformanceAnalyzer {
                 
             if path_suffix.is_empty() || path_suffix == "index.html" {
                 match self.serve_ui(session, ctx, &config).await {
-                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Ok(response) => {
+                        let http_response = HttpResponse {
+                            status_code: response.status,
+                            headers: response.headers.clone(),
+                            body: bytes::Bytes::new(), // Body was already written in serve_ui
+                        };
+                        return Ok((true, Some(http_response)));
+                    },
                     Err(e) => {
                         error!("Failed to serve UI: {}", e);
                         return Ok((false, None));
@@ -558,7 +565,14 @@ impl Plugin for PerformanceAnalyzer {
             // Handle API requests
             if path_suffix.starts_with("api/") {
                 match self.handle_api_request(session, ctx, path_suffix, &config).await {
-                    Ok(response) => return Ok((true, Some(HttpResponse::from(response)))),
+                    Ok(response) => {
+                        let http_response = HttpResponse {
+                            status_code: response.status,
+                            headers: response.headers.clone(),
+                            body: bytes::Bytes::new(), // Body was already written in handle_api_request
+                        };
+                        return Ok((true, Some(http_response)));
+                    },
                     Err(e) => {
                         error!("Failed to handle API request: {}", e);
                         return Ok((false, None));

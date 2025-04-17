@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use anyhow::bail;
 use serde::Deserialize;
 
-use super::{provider::OauthUser, HTTP_CLIENT};
+use super::{provider::{OauthType, OauthUser, Provider}, HTTP_CLIENT};
 
 /// Github `OAuth2` plugin
 pub(super) struct GithubOauthService;
@@ -13,6 +13,15 @@ const GITHUB_OAUTH_URL: &str = "https://github.com/login/oauth/authorize";
 const GITHUB_OAUTH_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 
 impl GithubOauthService {
+    /// Add a new method to create a Provider
+    pub fn new(client_id: &str, client_secret: &str) -> Provider {
+        Provider {
+            typ: OauthType::Github,
+            client_id: client_id.to_string(),
+            client_secret: client_secret.to_string(),
+        }
+    }
+
     /// Get the OAuth callback URL
     /// This is used to redirect the user to the Github login page
     /// and then to the OAuth callback URL

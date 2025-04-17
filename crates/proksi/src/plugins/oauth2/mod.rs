@@ -264,8 +264,8 @@ impl Oauth2 {
 
         // No valid cookie, redirect to Oauth provider
         let oauth_provider = match provider_type {
-            OauthType::Github => github::Provider::new(&client_id, &client_secret),
-            OauthType::Workos => workos::Provider::new(&client_id, &client_secret),
+            OauthType::Github => github::GithubOauthService::new(&client_id, &client_secret),
+            OauthType::Workos => workos::WorkosOauthService::new(&client_id, &client_secret),
         };
 
         // No cookie or the cookie is invalid
