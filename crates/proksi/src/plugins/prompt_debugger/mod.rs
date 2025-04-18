@@ -300,29 +300,29 @@ impl PromptDebugger {
         const html: &str = r#"
         <div class="prompt-debugger-ui">
     <h1>Prompt Debugger</h1>
-            <div class="container">
+        <div class="container">
                 <div>
                     <h2>Analyze Prompt</h2>
-                    <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
+                <textarea id="prompt-input" placeholder="Enter your prompt here..."></textarea>
                     <button id="analyze-btn">Analyze Prompt</button>
 
                     <div id="results">
                         <h3>Analysis Results</h3>
                         <div id="analysis-output">Enter a prompt and click analyze.</div>
-                        <h3>Suggestions</h3>
+                    <h3>Suggestions</h3>
                         <div id="suggestions"><ul></ul></div>
-    </div>
-    
+                </div>
+                
                     <div id="rules-list">
                         <h2>Active Rules</h2>
                         <ul>{rules_html}</ul>
-            </div>
-                </div>
-                
+        </div>
+    </div>
+    
                 <div>
                     {history_section}
-                </div>
-            </div>
+        </div>
+    </div>
         </div>
     <script>
             const promptInput = document.getElementById('prompt-input');
@@ -668,7 +668,7 @@ impl Plugin for PromptDebugger {
     async fn handle_response(
         &self,
         step: PluginStep,
-        session: &mut Session,
+        _session: &mut Session,
         ctx: &mut RouterContext,
         upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {

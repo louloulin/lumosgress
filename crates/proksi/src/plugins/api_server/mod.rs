@@ -181,7 +181,7 @@ async fn health_handler() -> &'static str {
 }
 
 /// Metrics endpoint handler
-async fn metrics_handler(State(state): State<AppState>) -> Json<HashMap<String, i64>> {
+async fn metrics_handler(State(_state): State<AppState>) -> Json<HashMap<String, i64>> {
     // TODO: Implement real metrics collection
     let metrics = HashMap::from([
         ("requests_total".to_string(), 0),
@@ -191,7 +191,7 @@ async fn metrics_handler(State(state): State<AppState>) -> Json<HashMap<String, 
 }
 
 /// Config endpoint handler 
-async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
+async fn config_handler(State(_state): State<AppState>) -> impl IntoResponse {
     // Return sanitized configuration
     Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),

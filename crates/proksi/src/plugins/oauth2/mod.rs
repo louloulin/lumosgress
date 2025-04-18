@@ -272,6 +272,17 @@ impl Oauth2 {
         // Redirect to Oauth callback
         self.redirect_to_oauth_callback(session, &oauth_provider).await
     }
+
+    async fn process_response(
+        &self,
+        _ctx: &mut RouterContext,
+        _step: PluginStep,
+        _session: &mut Session,
+        _upstream_response: &mut ResponseHeader,
+    ) -> Result<bool> {
+        // ... existing code ...
+        Ok(false)
+    }
 }
 
 #[async_trait]

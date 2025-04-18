@@ -1,18 +1,17 @@
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 use clap::{crate_version, ArgMatches, Command};
 use pingora::server::configuration::ServerConf as PingoraServerConf;
 use pingora::server::Server as PingoraServer;
 use tokio::signal;
 use tracing::{error, info};
 
-use crate::config::load_config;
-use crate::http_server::create_server;
-use crate::monitor::init_prometheus;
-use crate::plugins::api_server::{ApiServerConfig, ApiServerPlugin};
-use crate::plugins::core::Plugin;
-use crate::plugins::llm_router::LlmRouterPlugin;
-use crate::plugins::manager::PluginManager;
+use proksi::config::load as load_config;
+use proksi::http_server::create_server;
+use proksi::monitor::init_prometheus;
+use proksi::plugins::api_server::{ApiServerConfig, ApiServerPlugin};
+use proksi::plugins::core::Plugin;
+use proksi::plugins::manager::PluginManager;
 
 pub const SERVER_NAME: &str = "proksi";
 
@@ -37,7 +36,7 @@ async fn main() -> Result<()> {
 
 async fn start_server(_matches: &ArgMatches) -> Result<()> {
     // Load configuration
-    let config = Arc::new(load_config()?);
+    let config = Arc::new(load_config("proksi.toml")?);
 
     // Initialize Prometheus metrics
     init_prometheus();
@@ -53,13 +52,15 @@ async fn start_server(_matches: &ArgMatches) -> Result<()> {
     let mut server_conf = PingoraServerConf::default();
     
     // Configure server with proper fields from config
-    server_conf.threads = Some(config.server.threads.unwrap_or(4));
-    server_conf.daemon = false; // Not running as daemon by default
+    if let Some(threads) = config.worker_threads {
+        server_conf.threads = threads;
+    }
+    server_conf.daemon = config.daemon;
     server_conf.upgrade_sock = "/tmp/proksi_upgrade.sock".to_string();
     server_conf.error_log = None; // Using our own logging system
     
     // Add services to server
-    pingora_server.add_services(http_server);
+    pingora_server.add_services(vec![http_server]);
 
     // Initialize and register plugins
     if let Some(plugin_configs) = &config.plugins {
@@ -85,16 +86,7 @@ async fn start_server(_matches: &ArgMatches) -> Result<()> {
             }
         }
 
-        // Initialize LLM router plugin if enabled
-        if let Some(router_config) = &plugin_configs.llm_router {
-            if router_config.enabled {
-                let mut plugin = LlmRouterPlugin::new(router_config.clone());
-                plugin.start().await?;
-                plugin_manager.register(plugin);
-            }
-        }
-
-        // Initialize other plugins here...
+        // Initialize other plugins here as needed
     }
 
     // Run server

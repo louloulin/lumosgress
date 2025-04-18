@@ -42,10 +42,32 @@ fn default_cache_path() -> PathBuf {
     PathBuf::from("/tmp")
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, ValueEnum)]
-pub(crate) enum DockerServiceMode {
+/// The docker service mode (swarm or container)
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, ValueEnum)]
+pub enum DockerServiceMode {
     Swarm,
     Container,
+}
+
+#[derive(Debug, Serialize, Deserialize, Parser)]
+pub struct ServerCfg {
+    /// The address to bind the HTTPS server to.
+    #[arg(
+        long = "server.https_address",
+        required = false,
+        value_parser,
+        default_value = "0.0.0.0:443"
+    )]
+    pub https_address: Option<Cow<'static, str>>,
+
+    /// The address used to solve challenges (only HTTP)
+    #[arg(
+        long = "server.http_address",
+        required = false,
+        value_parser,
+        default_value = "0.0.0.0:80"
+    )]
+    pub http_address: Option<Cow<'static, str>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Args)]
@@ -554,27 +576,6 @@ impl Default for ComplianceConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Parser)]
-pub struct ServerCfg {
-    /// The address to bind the HTTPS server to.
-    #[arg(
-        long = "server.https_address",
-        required = false,
-        value_parser,
-        default_value = "0.0.0.0:443"
-    )]
-    pub https_address: Option<Cow<'static, str>>,
-
-    /// The address used to solve challenges (only HTTP)
-    #[arg(
-        long = "server.http_address",
-        required = false,
-        value_parser,
-        default_value = "0.0.0.0:80"
-    )]
-    pub http_address: Option<Cow<'static, str>>,
-}
-
 /// Configuration for monitoring and alerting
 #[derive(Debug, Serialize, Deserialize, Clone, Args)]
 #[group(id = "monitoring")]
@@ -812,7 +813,7 @@ fn default_true() -> bool {
 #[derive(Debug, Serialize, Deserialize, Parser)]
 #[command(name = "Proksi")]
 #[command(version, about, long_about = None)]
-pub(crate) struct Config {
+pub struct Config {
     /// The name of the service (will appear as a log property)
     #[serde(default)]
     #[clap(short, long, default_value = "proksi")]

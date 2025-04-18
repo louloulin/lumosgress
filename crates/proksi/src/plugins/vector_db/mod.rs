@@ -283,18 +283,15 @@ impl PineconeClient {
 
 #[async_trait]
 impl VectorDbClient for PineconeClient {
-    async fn upsert(&self, vectors: Vec<Vec<f32>>, metadata: Vec<Value>) -> Result<()> {
-        // TODO: 实现Pinecone upsert逻辑
+    async fn upsert(&self, _vectors: Vec<Vec<f32>>, _metadata: Vec<Value>) -> Result<()> {
         Ok(())
     }
-
-    async fn search(&self, query: Vec<f32>, top_k: usize) -> Result<Vec<Value>> {
-        // TODO: 实现Pinecone search逻辑
+    
+    async fn search(&self, _query: Vec<f32>, _top_k: usize) -> Result<Vec<Value>> {
         Ok(vec![])
     }
-
-    async fn delete(&self, ids: Vec<String>) -> Result<()> {
-        // TODO: 实现Pinecone delete逻辑
+    
+    async fn delete(&self, _ids: Vec<String>) -> Result<()> {
         Ok(())
     }
 }
@@ -312,18 +309,15 @@ impl QdrantClient {
 
 #[async_trait]
 impl VectorDbClient for QdrantClient {
-    async fn upsert(&self, vectors: Vec<Vec<f32>>, metadata: Vec<Value>) -> Result<()> {
-        // TODO: 实现Qdrant upsert逻辑
+    async fn upsert(&self, _vectors: Vec<Vec<f32>>, _metadata: Vec<Value>) -> Result<()> {
         Ok(())
     }
-
-    async fn search(&self, query: Vec<f32>, top_k: usize) -> Result<Vec<Value>> {
-        // TODO: 实现Qdrant search逻辑
+    
+    async fn search(&self, _query: Vec<f32>, _top_k: usize) -> Result<Vec<Value>> {
         Ok(vec![])
     }
-
-    async fn delete(&self, ids: Vec<String>) -> Result<()> {
-        // TODO: 实现Qdrant delete逻辑
+    
+    async fn delete(&self, _ids: Vec<String>) -> Result<()> {
         Ok(())
     }
 }
@@ -341,18 +335,15 @@ impl WeaviateClient {
 
 #[async_trait]
 impl VectorDbClient for WeaviateClient {
-    async fn upsert(&self, vectors: Vec<Vec<f32>>, metadata: Vec<Value>) -> Result<()> {
-        // TODO: 实现Weaviate upsert逻辑
+    async fn upsert(&self, _vectors: Vec<Vec<f32>>, _metadata: Vec<Value>) -> Result<()> {
         Ok(())
     }
-
-    async fn search(&self, query: Vec<f32>, top_k: usize) -> Result<Vec<Value>> {
-        // TODO: 实现Weaviate search逻辑
+    
+    async fn search(&self, _query: Vec<f32>, _top_k: usize) -> Result<Vec<Value>> {
         Ok(vec![])
     }
-
-    async fn delete(&self, ids: Vec<String>) -> Result<()> {
-        // TODO: 实现Weaviate delete逻辑
+    
+    async fn delete(&self, _ids: Vec<String>) -> Result<()> {
         Ok(())
     }
 }
@@ -370,18 +361,15 @@ impl MilvusClient {
 
 #[async_trait]
 impl VectorDbClient for MilvusClient {
-    async fn upsert(&self, vectors: Vec<Vec<f32>>, metadata: Vec<Value>) -> Result<()> {
-        // TODO: 实现Milvus upsert逻辑
+    async fn upsert(&self, _vectors: Vec<Vec<f32>>, _metadata: Vec<Value>) -> Result<()> {
         Ok(())
     }
-
-    async fn search(&self, query: Vec<f32>, top_k: usize) -> Result<Vec<Value>> {
-        // TODO: 实现Milvus search逻辑
+    
+    async fn search(&self, _query: Vec<f32>, _top_k: usize) -> Result<Vec<Value>> {
         Ok(vec![])
     }
-
-    async fn delete(&self, ids: Vec<String>) -> Result<()> {
-        // TODO: 实现Milvus delete逻辑
+    
+    async fn delete(&self, _ids: Vec<String>) -> Result<()> {
         Ok(())
     }
 }
@@ -399,18 +387,15 @@ impl CustomClient {
 
 #[async_trait]
 impl VectorDbClient for CustomClient {
-    async fn upsert(&self, vectors: Vec<Vec<f32>>, metadata: Vec<Value>) -> Result<()> {
-        // TODO: 实现自定义向量数据库upsert逻辑
+    async fn upsert(&self, _vectors: Vec<Vec<f32>>, _metadata: Vec<Value>) -> Result<()> {
         Ok(())
     }
-
-    async fn search(&self, query: Vec<f32>, top_k: usize) -> Result<Vec<Value>> {
-        // TODO: 实现自定义向量数据库search逻辑
+    
+    async fn search(&self, _query: Vec<f32>, _top_k: usize) -> Result<Vec<Value>> {
         Ok(vec![])
     }
-
-    async fn delete(&self, ids: Vec<String>) -> Result<()> {
-        // TODO: 实现自定义向量数据库delete逻辑
+    
+    async fn delete(&self, _ids: Vec<String>) -> Result<()> {
         Ok(())
     }
 }
