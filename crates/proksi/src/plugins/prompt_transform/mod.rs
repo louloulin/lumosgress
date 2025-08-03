@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};
 
 // Import new Plugin trait and related types
-use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType};
 use crate::proxy_server::HttpResponse;
 
 use crate::proxy_server::https_proxy::RouterContext;
@@ -548,6 +548,18 @@ impl Plugin for PromptTransformer {
         "prompt_transformer"
     }
 
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 300, // Prompt transformation should happen after routing
+            plugin_type: PluginType::Native,
+            description: "Advanced prompt transformation and enhancement for LLM requests".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
+
     async fn handle_request(
         &self,
         step: PluginStep,
@@ -662,11 +674,15 @@ impl Plugin for PromptTransformer {
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
-        Ok(()) // No specific start logic needed yet
+        info!("Starting PromptTransformer plugin");
+        info!("PromptTransformer plugin started with {} transformations configured", self.config.transformations.len());
+        info!("Available templates: {:?}", self.templates.keys().collect::<Vec<_>>());
+        Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        Ok(()) // No specific stop logic needed yet
+        info!("Stopping PromptTransformer plugin");
+        Ok(())
     }
 }
 

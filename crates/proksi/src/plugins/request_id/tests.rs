@@ -45,7 +45,7 @@ mod tests {
         
         // 测试 handle_request
         let result = plugin.handle_request(
-            PluginStep::Request,
+            PluginStep::EarlyRequest,
             &mut session,
             &mut ctx
         ).await;
@@ -73,7 +73,7 @@ mod tests {
         
         // 首先生成一个请求ID
         let result = plugin.handle_request(
-            PluginStep::Request,
+            PluginStep::EarlyRequest,
             &mut session,
             &mut ctx
         ).await;
@@ -107,6 +107,8 @@ mod tests {
         let plugin = RequestId::with_config(RequestIdConfig {
             enabled: false,
             header_name: "x-request-id".to_string(),
+            preserve_existing: true,
+            add_to_upstream: false,
         });
         
         let mut ctx = create_test_context();
@@ -114,7 +116,7 @@ mod tests {
         
         // 处理请求
         let result = plugin.handle_request(
-            PluginStep::Request,
+            PluginStep::EarlyRequest,
             &mut session,
             &mut ctx
         ).await;

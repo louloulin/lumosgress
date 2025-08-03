@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
 
-use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType};
 use crate::proxy_server::HttpResponse;
 
 use crate::proxy_server::https_proxy::RouterContext;
@@ -155,6 +155,18 @@ impl Plugin for LlmRouter {
         "llm_router"
     }
 
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 200, // LLM routing should happen after auth but before transforms
+            plugin_type: PluginType::Native,
+            description: "Intelligent LLM provider routing based on request patterns and load balancing".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
+
     async fn handle_request(
         &self,
         step: PluginStep,
@@ -262,12 +274,14 @@ impl Plugin for LlmRouter {
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
-        // No specific start logic needed for this plugin yet
+        info!("Starting LlmRouter plugin");
+        info!("LlmRouter plugin started with {} providers configured", self.config.providers.len());
+        info!("Semantic routing enabled: {}", self.config.semantic_routing_enabled);
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        // No specific stop logic needed for this plugin yet
+        info!("Stopping LlmRouter plugin");
         Ok(())
     }
 }

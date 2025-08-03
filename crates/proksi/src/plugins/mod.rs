@@ -64,6 +64,8 @@ pub static PLUGINS: Lazy<ProxyPlugins> = Lazy::new(|| ProxyPlugins {
     basic_auth: Lazy::new(|| BasicAuth::new(BasicAuthConfig {
         user: "admin".to_string(),
         pass: "password".to_string(),
+        enabled: true,
+        realm: "Proksi Gateway".to_string(),
     })),
     oauth2: Lazy::new(Oauth2::new),
     request_id: Lazy::new(RequestId::new),

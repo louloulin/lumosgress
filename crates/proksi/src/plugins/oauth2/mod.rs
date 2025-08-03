@@ -14,7 +14,8 @@ use provider::{OauthType, OauthUser, Provider};
 
 use crate::proxy_server::https_proxy::RouterContext;
 use crate::proxy_server::HttpResponse;
-use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType};
+use tracing::{debug, info};
 
 use super::get_required_config;
 use super::jwt;
@@ -292,6 +293,18 @@ impl Plugin for Oauth2 {
     fn name(&self) -> &'static str {
         "oauth2"
     }
+
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 90, // OAuth should run early, but after request ID
+            plugin_type: PluginType::Native,
+            description: "OAuth2 authentication plugin supporting GitHub, WorkOS and other providers".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
     
     async fn handle_request(
         &self,
@@ -306,12 +319,16 @@ impl Plugin for Oauth2 {
         
         // If no config is provided, or plugin is disabled, skip
         let Some(config) = &self.config else {
+            debug!("OAuth2 plugin has no configuration, skipping");
             return Ok((false, None));
         };
-        
+
         if !config.enabled {
+            debug!("OAuth2 plugin is disabled, skipping");
             return Ok((false, None));
         }
+
+        debug!("Processing OAuth2 authentication for provider: {}", config.provider);
         
         // Convert config to HashMap for compatibility with existing code
         let mut plugin_config = HashMap::new();
@@ -356,10 +373,21 @@ impl Plugin for Oauth2 {
     }
     
     async fn start(&mut self) -> Result<(), PluginError> {
+        info!("Starting OAuth2 plugin");
+        if let Some(config) = &self.config {
+            if config.enabled {
+                info!("OAuth2 plugin started for provider: {}", config.provider);
+            } else {
+                info!("OAuth2 plugin is disabled");
+            }
+        } else {
+            info!("OAuth2 plugin has no configuration");
+        }
         Ok(())
     }
-    
+
     async fn stop(&mut self) -> Result<(), PluginError> {
+        info!("Stopping OAuth2 plugin");
         Ok(())
     }
 }

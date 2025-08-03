@@ -857,7 +857,7 @@ mod tests {
             None,
         );
 
-        let message_id = message.id.clone();
+        let _message_id = message.id.clone();
         let result = plugin.publish_message(message).await;
 
         // 当插件禁用时，应该返回错误
