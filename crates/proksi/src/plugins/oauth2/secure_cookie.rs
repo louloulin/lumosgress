@@ -5,6 +5,7 @@ use crate::plugins::jwt;
 use super::{provider::OauthUser, COOKIE_NAME};
 
 /// Creates a secure cookie for the user containing the JWT token
+#[allow(dead_code)]
 pub(super) fn create_secure_cookie<'a>(
     user: &OauthUser,
     jwt_secret: &str,
@@ -40,6 +41,7 @@ pub(super) fn _remove_secure_cookie(host: &str) -> Cookie<'static> {
 
 /// Extracts the domain without subdomain
 /// This function does not support all possible tlds.
+#[allow(dead_code)]
 fn extract_cookie_domain(host: &str) -> String {
     let parts: Vec<&str> = host.split('.').collect();
 

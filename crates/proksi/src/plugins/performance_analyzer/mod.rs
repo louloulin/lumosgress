@@ -71,6 +71,66 @@ pub struct HotSpot {
     pub identified_at: DateTime<Utc>,
 }
 
+// LLM性能优化建议
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceOptimization {
+    pub id: String,
+    pub optimization_type: OptimizationType,
+    pub description: String,
+    pub potential_improvement: f64, // 预期改进百分比
+    pub implementation_difficulty: DifficultyLevel,
+    pub estimated_cost: CostLevel,
+    pub recommendation: String,
+    pub metrics_before: Option<MetricsSummary>,
+    pub metrics_after: Option<MetricsSummary>,
+    pub created_at: DateTime<Utc>,
+    pub applied_at: Option<DateTime<Utc>>,
+    pub status: OptimizationStatus,
+}
+
+// 优化类型
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OptimizationType {
+    Caching,           // 缓存优化
+    RequestBatching,   // 请求批处理
+    ModelSelection,    // 模型选择优化
+    TokenOptimization, // Token优化
+    LoadBalancing,     // 负载均衡
+    ConnectionPooling, // 连接池优化
+    ResponseStreaming, // 响应流优化
+    PromptOptimization, // 提示词优化
+    Custom(String),    // 自定义优化
+}
+
+// 实施难度级别
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DifficultyLevel {
+    Easy,    // 容易实施
+    Medium,  // 中等难度
+    Hard,    // 困难
+    Expert,  // 需要专家级别
+}
+
+// 成本级别
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CostLevel {
+    Free,     // 免费
+    Low,      // 低成本
+    Medium,   // 中等成本
+    High,     // 高成本
+    VeryHigh, // 非常高成本
+}
+
+// 优化状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OptimizationStatus {
+    Suggested,    // 建议中
+    InProgress,   // 实施中
+    Applied,      // 已应用
+    Reverted,     // 已回滚
+    Failed,       // 实施失败
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HotSpotImpact {
     Low,
@@ -101,6 +161,79 @@ pub struct PerformanceAnalyzerConfig {
     pub max_trace_depth: Option<usize>,
     pub exclude_paths: Vec<String>,
     pub trace_headers: bool,
+    // 新增：性能优化配置
+    pub auto_optimization: bool,
+    pub optimization_thresholds: OptimizationThresholds,
+    pub caching_config: CachingConfig,
+    pub batching_config: BatchingConfig,
+    pub model_selection_config: ModelSelectionConfig,
+}
+
+// 优化阈值配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizationThresholds {
+    pub response_time_ms: f64,      // 响应时间阈值
+    pub error_rate_percent: f64,    // 错误率阈值
+    pub token_efficiency: f64,      // Token效率阈值
+    pub cost_per_request: f64,      // 每请求成本阈值
+    pub throughput_rps: f64,        // 吞吐量阈值
+}
+
+// 缓存配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachingConfig {
+    pub enabled: bool,
+    pub ttl_seconds: u64,
+    pub max_cache_size: usize,
+    pub cache_key_strategy: CacheKeyStrategy,
+    pub cache_hit_threshold: f64,
+}
+
+// 缓存键策略
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CacheKeyStrategy {
+    FullRequest,      // 完整请求作为键
+    PromptOnly,       // 仅提示词作为键
+    SemanticHash,     // 语义哈希
+    Custom(String),   // 自定义策略
+}
+
+// 批处理配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchingConfig {
+    pub enabled: bool,
+    pub max_batch_size: usize,
+    pub batch_timeout_ms: u64,
+    pub compatible_models: Vec<String>,
+}
+
+// 模型选择配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelSelectionConfig {
+    pub enabled: bool,
+    pub auto_fallback: bool,
+    pub performance_weights: ModelPerformanceWeights,
+    pub model_rankings: HashMap<String, ModelRanking>,
+}
+
+// 模型性能权重
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPerformanceWeights {
+    pub speed: f64,      // 速度权重
+    pub accuracy: f64,   // 准确性权重
+    pub cost: f64,       // 成本权重
+    pub reliability: f64, // 可靠性权重
+}
+
+// 模型排名
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelRanking {
+    pub model_name: String,
+    pub avg_response_time_ms: f64,
+    pub success_rate: f64,
+    pub cost_per_token: f64,
+    pub quality_score: f64,
+    pub last_updated: DateTime<Utc>,
 }
 
 impl Default for PerformanceAnalyzerConfig {
@@ -116,6 +249,71 @@ impl Default for PerformanceAnalyzerConfig {
             max_trace_depth: Some(10),
             exclude_paths: vec!["/health".to_string(), "/metrics".to_string()],
             trace_headers: false,
+            auto_optimization: true,
+            optimization_thresholds: OptimizationThresholds::default(),
+            caching_config: CachingConfig::default(),
+            batching_config: BatchingConfig::default(),
+            model_selection_config: ModelSelectionConfig::default(),
+        }
+    }
+}
+
+impl Default for OptimizationThresholds {
+    fn default() -> Self {
+        Self {
+            response_time_ms: 2000.0,      // 2秒响应时间阈值
+            error_rate_percent: 5.0,       // 5%错误率阈值
+            token_efficiency: 0.8,         // 80%Token效率阈值
+            cost_per_request: 0.01,        // $0.01每请求成本阈值
+            throughput_rps: 100.0,         // 100 RPS吞吐量阈值
+        }
+    }
+}
+
+impl Default for CachingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ttl_seconds: 3600,             // 1小时TTL
+            max_cache_size: 10000,         // 最大缓存10000条
+            cache_key_strategy: CacheKeyStrategy::SemanticHash,
+            cache_hit_threshold: 0.7,      // 70%缓存命中率阈值
+        }
+    }
+}
+
+impl Default for BatchingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,                // 默认关闭批处理
+            max_batch_size: 10,
+            batch_timeout_ms: 100,         // 100ms批处理超时
+            compatible_models: vec![
+                "gpt-3.5-turbo".to_string(),
+                "gpt-4".to_string(),
+            ],
+        }
+    }
+}
+
+impl Default for ModelSelectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_fallback: true,
+            performance_weights: ModelPerformanceWeights::default(),
+            model_rankings: HashMap::new(),
+        }
+    }
+}
+
+impl Default for ModelPerformanceWeights {
+    fn default() -> Self {
+        Self {
+            speed: 0.3,        // 30%权重给速度
+            accuracy: 0.4,     // 40%权重给准确性
+            cost: 0.2,         // 20%权重给成本
+            reliability: 0.1,  // 10%权重给可靠性
         }
     }
 }
@@ -161,6 +359,20 @@ pub struct PerformanceAnalyzer {
     config: Arc<Mutex<PerformanceAnalyzerConfig>>,
     metrics: Arc<Mutex<Vec<RequestMetrics>>>,
     hot_spots: Arc<Mutex<Vec<HotSpot>>>,
+    // 新增：性能优化相关字段
+    optimizations: Arc<Mutex<Vec<PerformanceOptimization>>>,
+    cache: Arc<Mutex<HashMap<String, (String, DateTime<Utc>)>>>, // 简单的内存缓存
+    model_performance: Arc<Mutex<HashMap<String, ModelRanking>>>, // 模型性能统计
+    batch_queue: Arc<Mutex<Vec<BatchRequest>>>, // 批处理队列
+}
+
+// 批处理请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchRequest {
+    pub id: String,
+    pub request_data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub callback: Option<String>, // 回调URL或标识
 }
 
 impl PerformanceAnalyzer {
@@ -169,6 +381,22 @@ impl PerformanceAnalyzer {
             config: Arc::new(Mutex::new(PerformanceAnalyzerConfig::default())),
             metrics: Arc::new(Mutex::new(Vec::new())),
             hot_spots: Arc::new(Mutex::new(Vec::new())),
+            optimizations: Arc::new(Mutex::new(Vec::new())),
+            cache: Arc::new(Mutex::new(HashMap::new())),
+            model_performance: Arc::new(Mutex::new(HashMap::new())),
+            batch_queue: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn with_config(config: PerformanceAnalyzerConfig) -> Self {
+        Self {
+            config: Arc::new(Mutex::new(config)),
+            metrics: Arc::new(Mutex::new(Vec::new())),
+            hot_spots: Arc::new(Mutex::new(Vec::new())),
+            optimizations: Arc::new(Mutex::new(Vec::new())),
+            cache: Arc::new(Mutex::new(HashMap::new())),
+            model_performance: Arc::new(Mutex::new(HashMap::new())),
+            batch_queue: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -280,15 +508,15 @@ impl PerformanceAnalyzer {
                     stored_metrics.drain(0..overflow); // Remove oldest
                 }
             }
-            MetricsStorage::File { path } => {
+            MetricsStorage::File { path: _ } => {
                 // TODO: Implement file storage (append to file, handle rotation)
                 warn!("File storage for performance metrics not yet implemented.");
             }
-            MetricsStorage::Redis { url, key_prefix } => {
+            MetricsStorage::Redis { url: _, key_prefix: _ } => {
                 // TODO: Implement Redis storage (connect, store metric)
                  warn!("Redis storage for performance metrics not yet implemented.");
             }
-            MetricsStorage::Prometheus { endpoint } => {
+            MetricsStorage::Prometheus { endpoint: _ } => {
                 // TODO: Implement Prometheus exporter (update gauges/counters)
                  warn!("Prometheus storage for performance metrics not yet implemented.");
             }
@@ -336,6 +564,114 @@ impl PerformanceAnalyzer {
          }
 
         Ok(())
+    }
+
+    // 缓存相关方法
+    async fn check_cache(&self, cache_key: &str) -> Option<String> {
+        let cache = self.cache.lock().await;
+        if let Some((cached_response, cached_at)) = cache.get(cache_key) {
+            let config = self.config.lock().await;
+            let ttl_duration = chrono::Duration::seconds(config.caching_config.ttl_seconds as i64);
+
+            if Utc::now() - *cached_at < ttl_duration {
+                info!("Cache hit for key: {}", cache_key);
+                return Some(cached_response.clone());
+            } else {
+                info!("Cache expired for key: {}", cache_key);
+            }
+        }
+        None
+    }
+
+    async fn store_in_cache(&self, cache_key: String, response: String) {
+        let mut cache = self.cache.lock().await;
+        let config = self.config.lock().await;
+
+        // 检查缓存大小限制
+        if cache.len() >= config.caching_config.max_cache_size {
+            // 简单的LRU：移除最旧的条目
+            if let Some(oldest_key) = cache.keys().next().cloned() {
+                cache.remove(&oldest_key);
+            }
+        }
+
+        cache.insert(cache_key.clone(), (response, Utc::now()));
+        info!("Stored response in cache for key: {}", cache_key);
+    }
+
+    fn generate_cache_key(&self, request_data: &serde_json::Value, strategy: &CacheKeyStrategy) -> String {
+        match strategy {
+            CacheKeyStrategy::FullRequest => {
+                // 使用完整请求的哈希作为键
+                format!("full_{}", self.hash_json(request_data))
+            },
+            CacheKeyStrategy::PromptOnly => {
+                // 仅使用提示词部分
+                if let Some(messages) = request_data.get("messages").and_then(|m| m.as_array()) {
+                    let prompt_content = messages.iter()
+                        .filter_map(|msg| msg.get("content").and_then(|c| c.as_str()))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    format!("prompt_{}", self.hash_string(&prompt_content))
+                } else if let Some(prompt) = request_data.get("prompt").and_then(|p| p.as_str()) {
+                    format!("prompt_{}", self.hash_string(prompt))
+                } else {
+                    format!("unknown_{}", self.hash_json(request_data))
+                }
+            },
+            CacheKeyStrategy::SemanticHash => {
+                // 语义哈希（简化版本）
+                format!("semantic_{}", self.semantic_hash(request_data))
+            },
+            CacheKeyStrategy::Custom(pattern) => {
+                // 自定义策略
+                format!("custom_{}_{}", pattern, self.hash_json(request_data))
+            },
+        }
+    }
+
+    fn hash_json(&self, data: &serde_json::Value) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let json_str = serde_json::to_string(data).unwrap_or_default();
+        let mut hasher = DefaultHasher::new();
+        json_str.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+    fn hash_string(&self, data: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+    fn semantic_hash(&self, data: &serde_json::Value) -> String {
+        // 简化的语义哈希：提取关键词并排序
+        let text = self.extract_text_content(data);
+        let words: std::collections::BTreeSet<&str> = text
+            .split_whitespace()
+            .filter(|word| word.len() > 3) // 过滤短词
+            .collect();
+
+        let semantic_key = words.into_iter().collect::<Vec<_>>().join("_");
+        self.hash_string(&semantic_key)
+    }
+
+    fn extract_text_content(&self, data: &serde_json::Value) -> String {
+        match data {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Array(arr) => {
+                arr.iter().map(|v| self.extract_text_content(v)).collect::<Vec<_>>().join(" ")
+            },
+            serde_json::Value::Object(obj) => {
+                obj.values().map(|v| self.extract_text_content(v)).collect::<Vec<_>>().join(" ")
+            },
+            _ => String::new(),
+        }
     }
 
     // Serve the basic UI for the performance analyzer
@@ -433,6 +769,22 @@ impl PerformanceAnalyzer {
                      (json!({ "error": "Hotspot detection is disabled" }), StatusCode::SERVICE_UNAVAILABLE)
                  }
             }
+            "/api/optimizations" => {
+                let optimizations_snapshot = self.optimizations.lock().await.clone();
+                (serde_json::to_value(optimizations_snapshot)?, StatusCode::OK)
+            }
+            "/api/model-performance" => {
+                let model_perf_snapshot = self.model_performance.lock().await.clone();
+                (serde_json::to_value(model_perf_snapshot)?, StatusCode::OK)
+            }
+            "/api/cache-stats" => {
+                let cache_stats = self.get_cache_stats().await;
+                (serde_json::to_value(cache_stats)?, StatusCode::OK)
+            }
+            "/api/generate-optimizations" => {
+                let new_optimizations = self.generate_optimization_suggestions().await?;
+                (serde_json::to_value(new_optimizations)?, StatusCode::OK)
+            }
             _ => {
                  warn!("Unhandled PerformanceAnalyzer API path: {}", path_suffix);
                  (json!({ "error": "API endpoint not found" }), StatusCode::NOT_FOUND)
@@ -448,6 +800,199 @@ impl PerformanceAnalyzer {
         session.write_response_body(Some(body_bytes), true).await?;
 
         Ok(response_header)
+    }
+
+    // 获取缓存统计信息
+    async fn get_cache_stats(&self) -> serde_json::Value {
+        let cache = self.cache.lock().await;
+        let config = self.config.lock().await;
+
+        let total_entries = cache.len();
+        let max_entries = config.caching_config.max_cache_size;
+        let cache_usage_percent = if max_entries > 0 {
+            (total_entries as f64 / max_entries as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        json!({
+            "total_entries": total_entries,
+            "max_entries": max_entries,
+            "cache_usage_percent": cache_usage_percent,
+            "ttl_seconds": config.caching_config.ttl_seconds,
+            "cache_key_strategy": config.caching_config.cache_key_strategy,
+            "enabled": config.caching_config.enabled
+        })
+    }
+
+    // 生成性能优化建议
+    async fn generate_optimization_suggestions(&self) -> Result<Vec<PerformanceOptimization>> {
+        let metrics = self.metrics.lock().await.clone();
+        let config = self.config.lock().await;
+        let mut optimizations = Vec::new();
+
+        if metrics.is_empty() {
+            return Ok(optimizations);
+        }
+
+        let summary = self.generate_summary(&metrics);
+
+        // 响应时间优化建议
+        if summary.avg_response_time_ms > config.optimization_thresholds.response_time_ms {
+            optimizations.push(PerformanceOptimization {
+                id: Uuid::new_v4().to_string(),
+                optimization_type: OptimizationType::Caching,
+                description: format!(
+                    "平均响应时间 {:.2}ms 超过阈值 {:.2}ms，建议启用缓存",
+                    summary.avg_response_time_ms,
+                    config.optimization_thresholds.response_time_ms
+                ),
+                potential_improvement: 30.0, // 预期30%改进
+                implementation_difficulty: DifficultyLevel::Easy,
+                estimated_cost: CostLevel::Low,
+                recommendation: "启用响应缓存，特别是对于重复的查询请求".to_string(),
+                metrics_before: Some(summary.clone()),
+                metrics_after: None,
+                created_at: Utc::now(),
+                applied_at: None,
+                status: OptimizationStatus::Suggested,
+            });
+        }
+
+        // Token效率优化建议
+        if summary.avg_tokens_input > 0.0 {
+            let token_efficiency = summary.avg_tokens_output / summary.avg_tokens_input;
+            if token_efficiency < config.optimization_thresholds.token_efficiency {
+                optimizations.push(PerformanceOptimization {
+                    id: Uuid::new_v4().to_string(),
+                    optimization_type: OptimizationType::TokenOptimization,
+                    description: format!(
+                        "Token效率 {:.2} 低于阈值 {:.2}，建议优化提示词",
+                        token_efficiency,
+                        config.optimization_thresholds.token_efficiency
+                    ),
+                    potential_improvement: 25.0,
+                    implementation_difficulty: DifficultyLevel::Medium,
+                    estimated_cost: CostLevel::Free,
+                    recommendation: "优化提示词长度，使用更精确的指令，减少不必要的上下文".to_string(),
+                    metrics_before: Some(summary.clone()),
+                    metrics_after: None,
+                    created_at: Utc::now(),
+                    applied_at: None,
+                    status: OptimizationStatus::Suggested,
+                });
+            }
+        }
+
+        // 错误率优化建议
+        if summary.success_rate < (1.0 - config.optimization_thresholds.error_rate_percent / 100.0) {
+            optimizations.push(PerformanceOptimization {
+                id: Uuid::new_v4().to_string(),
+                optimization_type: OptimizationType::LoadBalancing,
+                description: format!(
+                    "成功率 {:.2}% 低于预期，建议改进负载均衡和错误处理",
+                    summary.success_rate * 100.0
+                ),
+                potential_improvement: 15.0,
+                implementation_difficulty: DifficultyLevel::Hard,
+                estimated_cost: CostLevel::Medium,
+                recommendation: "实施智能负载均衡，添加重试机制，改进错误处理".to_string(),
+                metrics_before: Some(summary.clone()),
+                metrics_after: None,
+                created_at: Utc::now(),
+                applied_at: None,
+                status: OptimizationStatus::Suggested,
+            });
+        }
+
+        // 模型选择优化建议
+        let model_performance = self.analyze_model_performance(&metrics).await;
+        if model_performance.len() > 1 {
+            // 如果有多个模型，建议使用性能最好的
+            if let Some(best_model) = model_performance.values().min_by(|a, b| {
+                a.avg_response_time_ms.partial_cmp(&b.avg_response_time_ms).unwrap_or(std::cmp::Ordering::Equal)
+            }) {
+                optimizations.push(PerformanceOptimization {
+                    id: Uuid::new_v4().to_string(),
+                    optimization_type: OptimizationType::ModelSelection,
+                    description: format!(
+                        "建议优先使用性能最佳的模型: {}",
+                        best_model.model_name
+                    ),
+                    potential_improvement: 20.0,
+                    implementation_difficulty: DifficultyLevel::Easy,
+                    estimated_cost: CostLevel::Free,
+                    recommendation: format!(
+                        "将 {} 设置为默认模型，平均响应时间 {:.2}ms，成功率 {:.2}%",
+                        best_model.model_name,
+                        best_model.avg_response_time_ms,
+                        best_model.success_rate * 100.0
+                    ),
+                    metrics_before: Some(summary.clone()),
+                    metrics_after: None,
+                    created_at: Utc::now(),
+                    applied_at: None,
+                    status: OptimizationStatus::Suggested,
+                });
+            }
+        }
+
+        // 存储优化建议
+        let mut stored_optimizations = self.optimizations.lock().await;
+        stored_optimizations.extend(optimizations.clone());
+
+        Ok(optimizations)
+    }
+
+    // 分析模型性能
+    async fn analyze_model_performance(&self, metrics: &[RequestMetrics]) -> HashMap<String, ModelRanking> {
+        let mut model_stats: HashMap<String, Vec<&RequestMetrics>> = HashMap::new();
+
+        // 按模型分组指标
+        for metric in metrics {
+            if let Some(model) = &metric.model {
+                model_stats.entry(model.clone()).or_default().push(metric);
+            }
+        }
+
+        let mut model_rankings = HashMap::new();
+
+        for (model_name, model_metrics) in model_stats {
+            if model_metrics.is_empty() {
+                continue;
+            }
+
+            let total_requests = model_metrics.len();
+            let successful_requests = model_metrics.iter()
+                .filter(|m| m.error.is_none() && m.status_code.map_or(true, |s| s < 400))
+                .count();
+
+            let avg_response_time = model_metrics.iter()
+                .map(|m| m.total_duration_ms)
+                .sum::<u64>() as f64 / total_requests as f64;
+
+            let success_rate = successful_requests as f64 / total_requests as f64;
+
+            // 简化的质量评分（基于响应时间和成功率）
+            let quality_score = (success_rate * 0.7) + ((1.0 - (avg_response_time / 10000.0).min(1.0)) * 0.3);
+
+            let ranking = ModelRanking {
+                model_name: model_name.clone(),
+                avg_response_time_ms: avg_response_time,
+                success_rate,
+                cost_per_token: 0.0, // 需要外部数据源
+                quality_score,
+                last_updated: Utc::now(),
+            };
+
+            model_rankings.insert(model_name, ranking);
+        }
+
+        // 更新存储的模型性能数据
+        let mut stored_performance = self.model_performance.lock().await;
+        stored_performance.extend(model_rankings.clone());
+
+        model_rankings
     }
 
     // Generate summary statistics from collected metrics

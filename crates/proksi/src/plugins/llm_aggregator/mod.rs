@@ -57,10 +57,14 @@ pub struct LlmAggregatorConfig {
 
 // 聚合请求的状态
 #[derive(Debug)]
-struct AggregationState {
+pub struct AggregationState {
+    #[allow(dead_code)]
     results: HashMap<String, Value>,
+    #[allow(dead_code)]
     completed: usize,
+    #[allow(dead_code)]
     total: usize,
+    #[allow(dead_code)]
     start_time: std::time::Instant,
 }
 
@@ -88,6 +92,7 @@ impl LlmAggregator {
     }
 
     // NOTE: This helper might be used if core supports aggregation
+    #[allow(dead_code)]
     async fn create_derived_requests(&self, session: &Session, providers: &[String]) -> Result<Vec<(String, Value)>> {
         let mut requests = Vec::new();
         
@@ -264,6 +269,7 @@ impl MiddlewarePlugin for LlmAggregator {
 */
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use super::*;
     use crate::plugins::core::PluginStep;
@@ -281,6 +287,7 @@ mod tests {
         assert!(matches!(AggregationStrategy::from("unknown"), AggregationStrategy::FastestResult));
     }
     
+    #[allow(dead_code)]
     fn create_test_context() -> RouterContext {
         RouterContext {
             host: "test.example.com".to_string(),

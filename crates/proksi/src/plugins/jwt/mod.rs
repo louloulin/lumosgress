@@ -18,6 +18,7 @@ pub(crate) struct JwtClaims {
 }
 
 /// Generates a JWT token for the given sub
+#[allow(dead_code)]
 pub(crate) fn encode_jwt(sub: &str, secret: &[u8]) -> Result<String, anyhow::Error> {
     let start = SystemTime::now();
     let since = start.duration_since(SystemTime::UNIX_EPOCH)?;

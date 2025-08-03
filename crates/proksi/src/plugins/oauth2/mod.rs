@@ -29,6 +29,7 @@ mod shared;
 
 /// The HTTP client used to make requests to the Oauth provider.
 /// Lazy loaded to avoid creating a new client for each request.
+#[allow(dead_code)]
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
 // Shared state for Oauth2 flows (should be cleaned up after fetching for the first time)
@@ -273,6 +274,7 @@ impl Oauth2 {
         self.redirect_to_oauth_callback(session, &oauth_provider).await
     }
 
+    #[allow(dead_code)]
     async fn process_response(
         &self,
         _ctx: &mut RouterContext,
@@ -295,7 +297,7 @@ impl Plugin for Oauth2 {
         &self,
         step: PluginStep,
         session: &mut Session,
-        ctx: &mut RouterContext,
+        _ctx: &mut RouterContext,
     ) -> Result<(bool, Option<HttpResponse>)> {
         // Only process in the EarlyRequest step
         if step != PluginStep::EarlyRequest {
@@ -344,10 +346,10 @@ impl Plugin for Oauth2 {
     
     async fn handle_response(
         &self,
-        step: PluginStep,
-        session: &mut Session,
+        _step: PluginStep,
+        _session: &mut Session,
         _ctx: &mut RouterContext,
-        upstream_response: &mut ResponseHeader,
+        _upstream_response: &mut ResponseHeader,
     ) -> Result<bool> {
         // No response handling needed
         Ok(false)

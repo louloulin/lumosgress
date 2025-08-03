@@ -86,7 +86,9 @@ pub struct AiAnalytics {
 #[async_trait]
 trait AnalyticsStorage: Send + Sync + Debug {
     async fn store_metric(&mut self, metric: AnalyticsMetric) -> Result<()>;
+    #[allow(dead_code)]
     async fn get_metrics(&self, metric_name: &str, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Vec<AnalyticsMetric>>;
+    #[allow(dead_code)]
     async fn get_aggregated_metrics(&self, metric_name: &str, start_time: DateTime<Utc>, end_time: DateTime<Utc>, aggregation: AggregationType) -> Result<Vec<AnalyticsMetric>>;
 }
 
@@ -211,7 +213,7 @@ impl AiAnalytics {
         Ok(metrics)
     }
 
-    async fn collect_response_metrics(&self, session: &Session, ctx: &RouterContext, upstream_response: &ResponseHeader) -> Result<Vec<AnalyticsMetric>> {
+    async fn collect_response_metrics(&self, _session: &Session, ctx: &RouterContext, upstream_response: &ResponseHeader) -> Result<Vec<AnalyticsMetric>> {
         let mut metrics = Vec::new();
         let timestamp = Utc::now();
         let mut tags = HashMap::new();
@@ -557,6 +559,7 @@ impl AnalyticsStorage for InMemoryStorage {
 
 #[derive(Debug)]
 struct RedisStorage {
+    #[allow(dead_code)]
     config: AiAnalyticsConfig,
 }
 
@@ -583,6 +586,7 @@ impl AnalyticsStorage for RedisStorage {
 
 #[derive(Debug)]
 struct PostgresStorage {
+    #[allow(dead_code)]
     config: AiAnalyticsConfig,
 }
 
@@ -609,6 +613,7 @@ impl AnalyticsStorage for PostgresStorage {
 
 #[derive(Debug)]
 struct CustomStorage {
+    #[allow(dead_code)]
     config: AiAnalyticsConfig,
 }
 

@@ -193,6 +193,7 @@ impl PromptDebugger {
         }
     }
 
+    #[allow(dead_code)]
     fn extract_prompt_from_request(&self, body: &str) -> Option<String> {
         if let Ok(json_body) = serde_json::from_str::<Value>(body) {
             if let Some(messages) = json_body.get("messages").and_then(|m| m.as_array()) {
@@ -297,7 +298,7 @@ impl PromptDebugger {
         let history_enabled = config.max_history_entries.map_or(false, |max| max > 0);
         let api_enabled = config.enable_api;
 
-        const html: &str = r#"
+        const HTML: &str = r#"
         <div class="prompt-debugger-ui">
     <h1>Prompt Debugger</h1>
         <div class="container">
@@ -458,7 +459,7 @@ impl PromptDebugger {
         </script>
         "#;
 
-        html.replace("{rules_html}", &rules_html)
+        HTML.replace("{rules_html}", &rules_html)
             .replace("{history_section}", if history_enabled {
                 "<div id=\"history\"><h3>Analysis History</h3><p>Loading history...</p></div>"
             } else {

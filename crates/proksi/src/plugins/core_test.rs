@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+
     use anyhow::Result;
     use serde_json::{json, Value};
     use async_trait::async_trait;

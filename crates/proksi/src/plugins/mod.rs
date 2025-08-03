@@ -24,6 +24,7 @@ pub mod llm_aggregator;
 pub mod vector_db;
 pub mod ai_analytics;
 pub mod ai_request_builder;
+pub mod async_api;
 pub mod prompt_debugger;
 pub mod performance_analyzer;
 pub mod api_server;
@@ -41,7 +42,7 @@ pub use tenant::TenantPlugin;
 pub use compliance::CompliancePlugin;
 pub use api_server::ApiServerPlugin;
 
-pub(crate) struct ProxyPlugins {
+pub struct ProxyPlugins {
     pub basic_auth: Lazy<BasicAuth>,
     pub oauth2: Lazy<Oauth2>,
     pub request_id: Lazy<request_id::RequestId>,
@@ -53,6 +54,7 @@ pub(crate) struct ProxyPlugins {
     pub vector_db: Lazy<vector_db::VectorDb>,
     pub ai_analytics: Lazy<ai_analytics::AiAnalytics>,
     pub ai_request_builder: Lazy<ai_request_builder::AiRequestBuilder>,
+    pub async_api: Lazy<async_api::AsyncApiPlugin>,
     pub prompt_debugger: Lazy<prompt_debugger::PromptDebugger>,
     pub performance_analyzer: Lazy<performance_analyzer::PerformanceAnalyzer>,
 }
@@ -73,6 +75,7 @@ pub static PLUGINS: Lazy<ProxyPlugins> = Lazy::new(|| ProxyPlugins {
     vector_db: Lazy::new(vector_db::VectorDb::new),
     ai_analytics: Lazy::new(ai_analytics::AiAnalytics::new),
     ai_request_builder: Lazy::new(ai_request_builder::AiRequestBuilder::new),
+    async_api: Lazy::new(async_api::AsyncApiPlugin::new),
     prompt_debugger: Lazy::new(prompt_debugger::PromptDebugger::new),
     performance_analyzer: Lazy::new(performance_analyzer::PerformanceAnalyzer::new),
 });

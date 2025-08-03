@@ -19,7 +19,9 @@ pub fn create_server(
 }
 
 pub struct HttpServer {
+    #[allow(dead_code)]
     config: Arc<Config>,
+    #[allow(dead_code)]
     plugin_manager: Arc<PluginManager>,
 }
 

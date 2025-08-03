@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use pingora::proxy::Session;
 use pingora::http::ResponseHeader;
 use http::HeaderValue;
-use serde_json::json;
 use std::borrow::Cow;
 
 use crate::proxy_server::https_proxy::RouterContext;

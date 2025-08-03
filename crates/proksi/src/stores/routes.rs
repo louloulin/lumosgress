@@ -4,7 +4,7 @@ use http::{HeaderName, HeaderValue};
 use path_tree::PathTree;
 use pingora::lb::{selection::RoundRobin, LoadBalancer};
 
-use crate::config::{RouteCache, RoutePlugin, RouteUpstream, RouteMatcher, RoutePathMatcher};
+use crate::config::{RouteCache, RoutePlugin, RouteUpstream, RouteMatcher};
 
 #[derive(Debug, Default, Clone)]
 pub struct RouteStorePathMatcher {
@@ -103,7 +103,7 @@ mod tests {
         
         // Initialize match_with with a RouteMatcher that has a path
         route_store.match_with = Some(RouteMatcher {
-            path: Some(RoutePathMatcher {
+            path: Some(crate::config::RoutePathMatcher {
                 patterns: vec![Cow::Borrowed("/auth")],
             }),
             header: None,

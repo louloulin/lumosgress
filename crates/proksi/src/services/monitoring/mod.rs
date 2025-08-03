@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use crate::config::{AlertChannelType, Config, MetricConfig};
+use crate::config::{AlertChannelType, Config};
 
 /// The monitoring service responsible for collecting metrics and sending alerts
 pub struct MonitoringService {
@@ -173,6 +173,7 @@ impl MonitoringService {
     }
 
     /// Clean up old metrics data based on retention period
+    #[allow(dead_code)]
     async fn cleanup_old_data(&self) {
         let retention_days = self.config.monitoring.retention_days;
         let cutoff = Utc::now() - chrono::Duration::days(retention_days as i64);
@@ -364,7 +365,7 @@ mod tests {
         
         // Add a test metric config
         config.monitoring.metrics = vec![
-            MetricConfig {
+            crate::config::MetricConfig {
                 name: "test_metric".to_string(),
                 description: "Test metric".to_string(),
                 enabled: true,

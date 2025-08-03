@@ -574,6 +574,7 @@ impl ProxyHttp for Router {
     }
 }
 
+#[allow(dead_code)]
 fn get_uri(session: &mut Session) -> Uri {
     session.req_header().uri.clone()
 }

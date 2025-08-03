@@ -10,6 +10,7 @@ use super::{github::GithubOauthService, workos::WorkosOauthService};
 pub struct Provider {
     pub(super) typ: OauthType,
     pub(super) client_id: String,
+    #[allow(dead_code)]
     pub(super) client_secret: String,
 }
 
@@ -23,6 +24,7 @@ impl Provider {
     }
 
     /// Get the Oauth user from the provider using the provided code
+    #[allow(dead_code)]
     pub async fn get_oauth_user(&self, code: &str) -> Result<OauthUser, anyhow::Error> {
         match self.typ {
             OauthType::Github => {

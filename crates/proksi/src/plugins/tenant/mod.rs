@@ -25,6 +25,7 @@ impl Default for TenantPluginConfig {
 #[derive(Debug)]
 #[derive(Default)]
 pub struct TenantPlugin {
+    #[allow(dead_code)]
     config: Arc<TenantPluginConfig>,
     tenants: dashmap::DashMap<String, Tenant>,
 }
@@ -54,6 +55,7 @@ impl TenantPlugin {
 }
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use super::*;
     use crate::models::tenant::ResourceQuota;

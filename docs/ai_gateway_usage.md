@@ -136,6 +136,10 @@ ai_security {
 
 **安全策略类型**:
 - `prompt_injection`: 检测提示注入尝试
+- `jailbreak_detection`: 检测越狱攻击（新增）
+- `malicious_code_detection`: 检测恶意代码（新增）
+- `data_leakage_prevention`: 防止数据泄露（新增）
+- `output_filtering`: 输出内容过滤（新增）
 - `sensitive_info`: 检测敏感信息（如信用卡、社保号）
 - `token_limit`: 限制请求中的token数量
 - `rate_limit`: 限制请求频率
@@ -144,6 +148,8 @@ ai_security {
 - `block`: 阻止请求
 - `log`: 仅记录但不阻止
 - `sanitize`: 尝试清理问题内容
+- `quarantine`: 隔离请求进行进一步分析（新增）
+- `redirect`: 重定向到安全端点（新增）
 
 ### 4. LLM聚合器
 

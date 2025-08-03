@@ -16,21 +16,128 @@ Proksi is a simple, lightweight, and easy-to-use proxy server that automatically
 
 # Features
 
-Of the many features Proksi offers is the ability to load balance to your infrastructure or any IP that supports your host configurations. Other features of Proksi also include:
+Proksi is a next-generation AI Gateway and reverse proxy that offers comprehensive features for managing AI/LLM traffic and traditional web services:
 
+## 🤖 AI Gateway Features
+- **Multi-LLM Provider Support**: OpenAI, Anthropic, Google Vertex AI, Azure OpenAI, and more
+- **Intelligent Routing**: Semantic-based routing to optimal models based on content analysis
+- **Advanced Prompt Engineering**: Automatic prompt enhancement, transformation, and optimization
+- **AI Security Suite**: Multi-layered protection against prompt injection, jailbreaks, and malicious content
+- **Model Aggregation**: Combine responses from multiple providers or select fastest/best results
+- **Performance Optimization**: Smart caching, request batching, and automatic performance tuning
+- **Async API Support**: Message queue integration (Kafka, RabbitMQ, Redis) for high-throughput scenarios
+
+## 🔒 Security & Compliance
+- **Advanced Threat Detection**: ML-powered detection of prompt injection and jailbreak attempts
+- **Data Loss Prevention**: Automatic detection and blocking of sensitive information
+- **Content Filtering**: Output sanitization and topic-based content blocking
+- **Audit Logging**: Comprehensive logging for compliance and security analysis
+- **Multi-tenant Isolation**: Secure tenant separation with quota management
+
+## ⚡ Performance & Scalability
+- **Intelligent Caching**: Semantic hashing for optimal cache hit rates
+- **Load Balancing**: Advanced load balancing with health checks and failover
+- **Real-time Analytics**: Performance monitoring with automatic optimization suggestions
+- **Horizontal Scaling**: Support for distributed deployments and clustering
+
+## 🛠 Traditional Proxy Features
 - Automatic Docker and Docker Swarm service discovery through labels
-- Built-in most common middlewares such as OAuth, Rate Limiting, CDN Caching and others
-- The ability of running it as a single binary in your system
-- Automatic SSL through Let's Encrypt and redirection from HTTP to HTTPS
-- Configuration through **HCL** with support for functions (get environment variables, etc)
-- Powerful plugin system for adding new middlewares and other features using **WebAssembly (WASM)**
-- Many others.
+- Built-in middlewares: OAuth, JWT, Rate Limiting, CDN Caching, and more
+- Single binary deployment with minimal resource requirements
+- Automatic SSL through Let's Encrypt with HTTP to HTTPS redirection
+- Configuration through **HCL** with support for functions and environment variables
+- Powerful plugin system using **WebAssembly (WASM)** for custom extensions
 
-# Quick start
+# Quick Start
 
-1. Download the latest release from [https://github.com/luizfonseca/proksi/releases](https://github.com/luizfonseca/proksi/releases)
-2. Create a configuration file named `proksi.hcl`
-3. Add the following content to the file:
+## AI Gateway Quick Start
+
+Get started with Proksi AI Gateway in under 5 minutes:
+
+### 1. Install Proksi
+```bash
+# Linux/macOS
+curl -fsSL https://github.com/luizfonseca/proksi/releases/latest/download/install.sh | sh
+
+# Or download manually from releases
+# https://github.com/luizfonseca/proksi/releases
+```
+
+### 2. Set up your API keys
+```bash
+export OPENAI_API_KEY="your-openai-api-key"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"  # optional
+```
+
+### 3. Create a basic AI Gateway configuration
+Create a file named `ai-gateway.hcl`:
+
+```hcl
+global {
+  address = "0.0.0.0:8000"
+  workers = 4
+}
+
+routes = [
+  {
+    host = "ai-gateway.localhost"
+
+    match_with {
+      path = { patterns = ["/v1/*"] }
+    }
+
+    upstreams = [{ ip = "api.openai.com", port = 443, tls = true }]
+
+    plugins = [
+      {
+        name = "llm_router"
+        config = {
+          default_provider = "openai"
+          providers = {
+            "openai" = {
+              endpoint = "api.openai.com/v1/chat/completions"
+              models = ["gpt-3.5-turbo", "gpt-4"]
+              api_key_env = "OPENAI_API_KEY"
+            }
+          }
+        }
+      },
+      {
+        name = "ai_security"
+        config = {
+          policies = [
+            {
+              policy_type = "prompt_injection"
+              action = "block"
+            }
+          ]
+        }
+      }
+    ]
+  }
+]
+```
+
+### 4. Start the gateway
+```bash
+proksi -c ai-gateway.hcl
+```
+
+### 5. Test your AI Gateway
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Host: ai-gateway.localhost" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+## Traditional Proxy Quick Start
+
+For traditional reverse proxy usage:
 
 ```hcl
 lets_encrypt {
@@ -38,41 +145,35 @@ lets_encrypt {
   email = "my@email.com"
 }
 
-paths {
-  # Where to save certificates?
-  lets_encrypt = "./"
-}
-
-# A list of routes Proksi should handle
 routes = [
   {
-    # You might need to edit your /etc/hosts file here.
-    host = "mysite.localhost",
-
-    # Will create a certificate for mysite.localhost
-    ssl_certificate =  {
-      self_signed_on_failure = true
-    }
-
-    # Where to point mysite.localhost to
+    host = "mysite.localhost"
     upstreams = [{
       ip = "docs.proksi.info"
       port = 443
-
-      headers = {
-        add = [{ name = "Host", value = "docs.proksi.info" }]
-      }
     }]
   }
 ]
 ```
-4. Run `proksi -c /path-where-proksi.hcl-is-located`
 
-For more information or guides, please refer to the [documentation](https://docs.proksi.info).
-
+Run with: `proksi -c proksi.hcl`
 
 # Documentation
-Documentation for Proksi can be found at [https://docs.proksi.info](https://docs.proksi.info) which is also available in the [gitbook](./gitbook/) folder of this repository.
+
+## 📚 Comprehensive Guides
+- **[Quick Start Guide](./docs/quick_start_guide.md)** - Get up and running in 5 minutes
+- **[AI Gateway Usage](./docs/ai_gateway_usage.md)** - Complete AI Gateway configuration guide
+- **[Performance Optimization](./docs/performance_optimization.md)** - Advanced performance tuning
+- **[Async API Guide](./docs/async_api_guide.md)** - Asynchronous processing with message queues
+- **[Security Configuration](./docs/security_guide.md)** - Advanced security features
+
+## 🔧 Configuration Examples
+- **[Basic AI Gateway](./examples/ai_gateway_config.hcl)** - Simple AI Gateway setup
+- **[Advanced Configuration](./examples/advanced_ai_gateway_config.hcl)** - Full-featured setup
+- **[Plugin Examples](./examples/plugins_config.hcl)** - Plugin system examples
+
+## 🌐 Online Documentation
+Full documentation is available at [https://docs.proksi.info](https://docs.proksi.info)
 
 
 # Contributing

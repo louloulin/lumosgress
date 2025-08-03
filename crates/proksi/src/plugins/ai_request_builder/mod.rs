@@ -110,6 +110,7 @@ pub struct AiRequestBuilder {
     request_history: Arc<Mutex<Vec<RequestHistoryEntry>>>,
 }
 
+#[allow(dead_code)]
 fn parse_plugin_config(plugin_config: Option<&RoutePlugin>) -> Result<AiRequestBuilderConfig> {
     let config_value = plugin_config
         .and_then(|p| p.config.as_ref())
@@ -475,7 +476,7 @@ impl AiRequestBuilder {
         html
     }
 
-    async fn handle_api_request(&self, session: &mut Session, ctx: &mut RouterContext, path_suffix: &str, config: &AiRequestBuilderConfig) -> Result<ResponseHeader> {
+    async fn handle_api_request(&self, session: &mut Session, _ctx: &mut RouterContext, path_suffix: &str, config: &AiRequestBuilderConfig) -> Result<ResponseHeader> {
         let req = session.req_header();
         let method = req.method.as_str();
 

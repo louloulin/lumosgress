@@ -383,6 +383,7 @@ impl MiddlewarePlugin for LlmRouter {
 */
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
@@ -396,6 +397,7 @@ mod tests {
     use http::StatusCode;
 
     // Helper to create a basic RouterContext
+    #[allow(dead_code)]
     fn create_test_context() -> RouterContext {
         RouterContext {
             host: "test.example.com".to_string(),
@@ -411,6 +413,7 @@ mod tests {
     }
 
     // Helper to create a sample LlmRouterConfig
+    #[allow(dead_code)]
     fn create_sample_config() -> LlmRouterConfig {
         let mut providers = HashMap::new();
         providers.insert(

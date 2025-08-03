@@ -8,8 +8,10 @@ use super::{provider::{OauthType, OauthUser, Provider}, HTTP_CLIENT};
 /// Github `OAuth2` plugin
 pub(super) struct GithubOauthService;
 
+#[allow(dead_code)]
 const GITHUB_API_URL: &str = "https://api.github.com";
 const GITHUB_OAUTH_URL: &str = "https://github.com/login/oauth/authorize";
+#[allow(dead_code)]
 const GITHUB_OAUTH_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 
 impl GithubOauthService {
@@ -36,6 +38,7 @@ impl GithubOauthService {
         format!("{GITHUB_OAUTH_URL}?client_id={client_id}&redirect_uri={redirect_uri}&state={state}&scope=user:email&response_type=code")
     }
 
+    #[allow(dead_code)]
     pub async fn get_oauth_user(
         client_id: &str,
         client_secret: &str,
@@ -64,6 +67,7 @@ impl GithubOauthService {
 
     /// Get the OAuth token
     /// Retrieves the token from the Github API to be used for further requests
+    #[allow(dead_code)]
     async fn get_oauth_token(
         client_id: &str,
         client_secret: &str,
@@ -85,6 +89,7 @@ impl GithubOauthService {
     }
 
     /// Get the user public profile information
+    #[allow(dead_code)]
     async fn get_user_info(token: &str) -> Result<GithubUserResponse, anyhow::Error> {
         tracing::debug!("Getting user info from Github");
 
@@ -100,6 +105,7 @@ impl GithubOauthService {
     }
 
     /// Get the user emails in order to find the primary one
+    #[allow(dead_code)]
     async fn get_user_emails(token: &str) -> Result<Vec<GithubEmailResponse>, anyhow::Error> {
         tracing::debug!("Getting user emails from Github");
 
@@ -118,6 +124,7 @@ impl GithubOauthService {
 /// Response from `POST github.com/login/oauth/access_token`
 /// Can be an error response (with an error property) or a success response
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct GithubTokenResponse {
     error: Option<Cow<'static, str>>,
     access_token: Option<Cow<'static, str>>,
@@ -126,6 +133,7 @@ struct GithubTokenResponse {
 /// Item Response from `api.github.com/user/emails`
 /// `{ [ {"email":"user@example.com","primary":true,"verified":true} ]  }`
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct GithubEmailResponse {
     email: Cow<'static, str>,
     primary: bool,
@@ -134,6 +142,7 @@ struct GithubEmailResponse {
 /// Response from `api.github.com/user`
 /// `{ "name": "John Doe", username: "johndoe" } }`
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct GithubUserResponse {
     login: Cow<'static, str>,
 }

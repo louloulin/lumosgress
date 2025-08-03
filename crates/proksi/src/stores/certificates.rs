@@ -12,6 +12,7 @@ mod openssl_serde {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::sync::Arc;
 
+    #[allow(dead_code)]
     pub fn serialize_pkey<S>(key: &PKey<Private>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -23,6 +24,7 @@ mod openssl_serde {
         serializer.serialize_str(&pem_str)
     }
 
+    #[allow(dead_code)]
     pub fn deserialize_pkey<'de, D>(deserializer: D) -> Result<PKey<Private>, D::Error>
     where
         D: Deserializer<'de>,
@@ -32,6 +34,7 @@ mod openssl_serde {
             .map_err(|e| serde::de::Error::custom(format!("Failed to deserialize PKey: {}", e)))
     }
 
+    #[allow(dead_code)]
     pub fn serialize_x509<S>(cert: &Arc<X509>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -43,6 +46,7 @@ mod openssl_serde {
         serializer.serialize_str(&pem_str)
     }
 
+    #[allow(dead_code)]
     pub fn deserialize_x509<'de, D>(deserializer: D) -> Result<Arc<X509>, D::Error>
     where
         D: Deserializer<'de>,

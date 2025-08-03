@@ -58,6 +58,7 @@ pub struct ApiServerPlugin {
 
 /// Application state containing shared data
 #[derive(Clone)]
+#[allow(dead_code)]
 struct AppState {
     config: Arc<Config>,
     data: Arc<Mutex<HashMap<String, serde_json::Value>>>,

@@ -24,6 +24,7 @@ impl WorkosOauthService {
     }
 
     /// Retrieves the user information from Workos
+    #[allow(dead_code)]
     pub async fn get_oauth_user(
         client_id: &str,
         client_secret: &str,
@@ -54,6 +55,7 @@ impl WorkosOauthService {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct WorkosTokenResponse {
     // access_token: Cow<'static, str>,
     // refresh_token: Cow<'static, str>,
@@ -61,6 +63,7 @@ struct WorkosTokenResponse {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct WorkosUserResponse {
     // id: Cow<'static, str>,
     email: Cow<'static, str>,

@@ -99,5 +99,4 @@ async fn start_server(_matches: &ArgMatches) -> Result<()> {
     });
 
     pingora_server.run_forever();
-    Ok(())
 }

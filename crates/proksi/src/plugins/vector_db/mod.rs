@@ -53,6 +53,7 @@ impl VectorDbProvider {
 trait VectorDbClient: Send + Sync + std::fmt::Debug {
     async fn upsert(&self, vectors: Vec<Vec<f32>>, metadata: Vec<Value>) -> Result<()>;
     async fn search(&self, query: Vec<f32>, top_k: usize) -> Result<Vec<Value>>;
+    #[allow(dead_code)]
     async fn delete(&self, ids: Vec<String>) -> Result<()>;
 }
 
@@ -81,7 +82,7 @@ impl VectorDb {
         let client_key = format!("{:?}_{}", self.config.provider, self.config.collection);
         let clients = self.clients.lock().await;
         
-        if let Some(client) = clients.get(&client_key) {
+        if let Some(_client) = clients.get(&client_key) {
             // Need a way to return a clone or handle the lifetime
             // For simplicity now, we recreate if not found, but caching is ideal
             // To return from cache directly, client needs to impl Clone or we store Arc<Client>
@@ -103,7 +104,8 @@ impl VectorDb {
         Ok(client)
     }
 
-    async fn process_request(&self, session: &mut Session, config_name: &str) -> Result<()> {
+    #[allow(dead_code)]
+    async fn process_request(&self, session: &mut Session, _config_name: &str) -> Result<()> {
         let client = self.get_client().await?;
         
         let vectors = self.extract_vectors(session).await?;
@@ -119,7 +121,8 @@ impl VectorDb {
         Ok(())
     }
 
-    async fn process_response(&self, session: &mut Session, config_name: &str) -> Result<()> {
+    #[allow(dead_code)]
+    async fn process_response(&self, session: &mut Session, _config_name: &str) -> Result<()> {
         let client = self.get_client().await?;
         let config = self.config.clone();
         
@@ -172,6 +175,7 @@ impl VectorDb {
         Ok(vec![])
     }
 
+    #[allow(dead_code)]
     async fn add_search_results(&self, session: &mut Session, results: Vec<Value>) -> Result<()> {
         let response = json!({
             "search_results": results
@@ -272,6 +276,7 @@ impl Plugin for VectorDb {
 
 #[derive(Debug)]
 struct PineconeClient {
+    #[allow(dead_code)]
     config: VectorDbConfig,
 }
 
@@ -298,6 +303,7 @@ impl VectorDbClient for PineconeClient {
 
 #[derive(Debug)]
 struct QdrantClient {
+    #[allow(dead_code)]
     config: VectorDbConfig,
 }
 
@@ -324,6 +330,7 @@ impl VectorDbClient for QdrantClient {
 
 #[derive(Debug)]
 struct WeaviateClient {
+    #[allow(dead_code)]
     config: VectorDbConfig,
 }
 
@@ -350,6 +357,7 @@ impl VectorDbClient for WeaviateClient {
 
 #[derive(Debug)]
 struct MilvusClient {
+    #[allow(dead_code)]
     config: VectorDbConfig,
 }
 
@@ -376,6 +384,7 @@ impl VectorDbClient for MilvusClient {
 
 #[derive(Debug)]
 struct CustomClient {
+    #[allow(dead_code)]
     config: VectorDbConfig,
 }
 
@@ -404,6 +413,7 @@ impl VectorDbClient for CustomClient {
 // pub static VECTOR_DB: Lazy<VectorDb> = Lazy::new(VectorDb::new);
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use super::*;
     use crate::proxy_server::https_proxy::RouterContext;
