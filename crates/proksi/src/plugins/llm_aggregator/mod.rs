@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 // Import new Plugin trait and related types
-use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType};
 use crate::proxy_server::HttpResponse;
 
 use crate::proxy_server::https_proxy::RouterContext;
@@ -120,6 +120,18 @@ impl Plugin for LlmAggregator {
         "llm_aggregator"
     }
 
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 220, // Aggregation should happen after routing but before transformations
+            plugin_type: PluginType::Native,
+            description: "LLM response aggregation with multiple strategies for enhanced AI responses".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
+
     async fn handle_request(
         &self,
         step: PluginStep,
@@ -171,11 +183,26 @@ impl Plugin for LlmAggregator {
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
-        Ok(()) // No specific start logic needed yet
+        info!("Starting LlmAggregator plugin");
+        info!("LlmAggregator plugin started with strategy: {:?}", self.config.strategy);
+        info!("Configured providers: {:?}", self.config.providers);
+
+        if let Some(timeout) = self.config.timeout_ms {
+            info!("Timeout: {}ms", timeout);
+        } else {
+            info!("No timeout configured (using default)");
+        }
+
+        if let Some(ref weights) = self.config.weights {
+            info!("Provider weights configured: {:?}", weights);
+        }
+
+        Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        Ok(()) // No specific stop logic needed yet
+        info!("Stopping LlmAggregator plugin");
+        Ok(())
     }
 }
 

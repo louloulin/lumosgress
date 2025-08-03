@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    plugins::core::{Plugin, PluginError, PluginStep},
+    plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType},
     proxy_server::{https_proxy::RouterContext, HttpResponse},
 };
 
@@ -654,6 +654,18 @@ impl Clone for AsyncApiPlugin {
 impl Plugin for AsyncApiPlugin {
     fn name(&self) -> &'static str {
         "async_api"
+    }
+
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 150, // Async processing should happen after auth but before routing
+            plugin_type: PluginType::Native,
+            description: "Asynchronous API processing with message queuing, webhooks, and event handling".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
     }
 
     async fn handle_request(

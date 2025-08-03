@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use tracing::{info, debug, error};
 use bytes;
 
-use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType};
 use crate::proxy_server::HttpResponse;
 
 use crate::proxy_server::https_proxy::RouterContext;
@@ -193,6 +193,18 @@ impl Plugin for VectorDb {
         "vector_db"
     }
 
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 250, // Vector operations should happen after routing and transformations
+            plugin_type: PluginType::Native,
+            description: "Vector database integration for semantic search and embeddings storage".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
+
     async fn handle_request(
         &self,
         step: PluginStep,
@@ -266,10 +278,23 @@ impl Plugin for VectorDb {
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
+        info!("Starting VectorDb plugin");
+        info!("VectorDb plugin started with provider: {:?}", self.config.provider);
+        info!("Endpoint: {}", self.config.endpoint);
+        info!("Collection: {}", self.config.collection);
+        info!("Dimensions: {}", self.config.dimensions);
+        info!("Batch size: {}", self.config.batch_size.unwrap_or(100));
+        info!("Search top-k: {}", self.config.search_top_k.unwrap_or(10));
+
+        if let Some(ref api_key_env) = self.config.api_key_env {
+            info!("API key environment variable: {}", api_key_env);
+        }
+
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
+        info!("Stopping VectorDb plugin");
         Ok(())
     }
 }

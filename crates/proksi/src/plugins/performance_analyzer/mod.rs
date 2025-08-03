@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::{plugins::core::{Plugin, PluginError, PluginStep}, proxy_server::{https_proxy::RouterContext, HttpResponse}};
+use crate::{plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType}, proxy_server::{https_proxy::RouterContext, HttpResponse}};
 
 // Performance metrics for a request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1053,13 +1053,34 @@ impl Plugin for PerformanceAnalyzer {
         "performance_analyzer"
     }
 
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 450, // Performance analysis should run after most other plugins
+            plugin_type: PluginType::Native,
+            description: "Performance monitoring and analysis with metrics collection, caching, and hotspot detection".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
+
     async fn start(&mut self) -> Result<(), PluginError> {
-        info!("Starting performance analyzer plugin");
+        info!("Starting PerformanceAnalyzer plugin");
+        let config = self.config.lock().await;
+        if config.enabled {
+            info!("PerformanceAnalyzer plugin started with metrics enabled: {}", config.metrics_enabled);
+            info!("Caching enabled: {}", config.caching_enabled);
+            info!("Hotspot detection enabled: {}", config.hotspot_detection);
+            info!("Max metrics stored: {}", config.max_metrics);
+        } else {
+            info!("PerformanceAnalyzer plugin is disabled");
+        }
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        info!("Stopping performance analyzer plugin");
+        info!("Stopping PerformanceAnalyzer plugin");
         Ok(())
     }
 

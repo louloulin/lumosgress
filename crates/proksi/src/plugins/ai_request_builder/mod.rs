@@ -11,7 +11,7 @@ use http::StatusCode;
 use tracing::{error, info, warn};
 use html_escape;
 
-use crate::{config::RoutePlugin, proxy_server::{https_proxy::RouterContext, HttpResponse}, plugins::core::{Plugin, PluginError, PluginStep}};
+use crate::{config::RoutePlugin, proxy_server::{https_proxy::RouterContext, HttpResponse}, plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType}};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderTemplate {
@@ -570,16 +570,38 @@ impl AiRequestBuilder {
 #[async_trait]
 impl Plugin for AiRequestBuilder {
     fn name(&self) -> &'static str {
-        "AiRequestBuilder"
+        "ai_request_builder"
+    }
+
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 50, // UI plugins should run early but after core plugins
+            plugin_type: PluginType::Native,
+            description: "Interactive AI request builder with web UI for testing and debugging AI endpoints".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
-        info!("AiRequestBuilder plugin started.");
+        info!("Starting AiRequestBuilder plugin");
+        let config = self.config.lock().await;
+        info!("AiRequestBuilder plugin started with UI endpoint: {}", config.ui_endpoint);
+        info!("Available provider templates: {}", config.templates.len());
+        info!("API enabled: {}", config.enable_api);
+        info!("History saving enabled: {}", config.save_history);
+
+        if let Some(max_entries) = config.max_history_entries {
+            info!("Max history entries: {}", max_entries);
+        }
+
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        info!("AiRequestBuilder plugin stopped.");
+        info!("Stopping AiRequestBuilder plugin");
         Ok(())
     }
 

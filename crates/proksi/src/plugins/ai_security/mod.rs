@@ -14,7 +14,7 @@ use tracing::{error, info, warn, debug};
 use crate::proxy_server::https_proxy::RouterContext;
 
 // Import new Plugin trait and related types
-use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType};
 use crate::proxy_server::HttpResponse;
 
 // 安全策略类型
@@ -681,6 +681,18 @@ impl Plugin for AiSecurity {
         "ai_security"
     }
 
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 80, // Security should run very early, before most other plugins
+            plugin_type: PluginType::Native,
+            description: "AI security plugin with prompt injection detection, content filtering, and rate limiting".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
+
     async fn handle_request(
         &self,
         step: PluginStep,
@@ -913,11 +925,28 @@ impl Plugin for AiSecurity {
     }
 
     async fn start(&mut self) -> Result<(), PluginError> {
-        Ok(()) // No specific start logic needed yet
+        info!("Starting AiSecurity plugin");
+        info!("AiSecurity plugin started with {} policies configured", self.config.policies.len());
+
+        // 统计不同类型的策略
+        let mut policy_counts = std::collections::HashMap::new();
+        for policy in &self.config.policies {
+            let policy_name = format!("{:?}", policy.policy_type);
+            *policy_counts.entry(policy_name).or_insert(0) += 1;
+        }
+
+        if !policy_counts.is_empty() {
+            info!("Active security policies: {:?}", policy_counts);
+        } else {
+            info!("No security policies configured");
+        }
+
+        Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        Ok(()) // No specific stop logic needed yet
+        info!("Stopping AiSecurity plugin");
+        Ok(())
     }
 }
 

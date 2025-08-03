@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use crate::proxy_server::https_proxy::RouterContext;
 
 // Import new Plugin trait and related types
-use crate::plugins::core::{Plugin, PluginError, PluginStep};
+use crate::plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType};
 use crate::proxy_server::HttpResponse;
 
 mod anomaly_detection;
@@ -353,6 +353,18 @@ impl AiAnalytics {
 impl Plugin for AiAnalytics {
     fn name(&self) -> &'static str {
         "ai_analytics"
+    }
+
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 400, // Analytics should run after most other plugins
+            plugin_type: PluginType::Native,
+            description: "AI analytics and monitoring with metrics collection, anomaly detection, and alerting".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
     }
 
     async fn handle_request(

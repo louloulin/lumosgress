@@ -12,7 +12,7 @@ use serde_json::Value;
 use tracing::{error, info, warn};
 
 use crate::{
-    plugins::core::{Plugin, PluginError, PluginStep},
+    plugins::core::{Plugin, PluginError, PluginStep, PluginMetadata, PluginType},
     proxy_server::{https_proxy::RouterContext, HttpResponse},
 };
 
@@ -591,13 +591,33 @@ impl Plugin for PromptDebugger {
         "prompt_debugger"
     }
 
+    fn metadata(&self) -> PluginMetadata {
+        PluginMetadata {
+            name: self.name().to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            priority: 350, // Debugging should happen after most processing
+            plugin_type: PluginType::Native,
+            description: "Interactive prompt debugging and analysis tool with web UI".to_string(),
+            author: "Proksi Team".to_string(),
+            homepage: Some("https://github.com/luizfonseca/proksi".to_string()),
+        }
+    }
+
     async fn start(&mut self) -> Result<(), PluginError> {
-        info!("Starting prompt debugger plugin");
+        info!("Starting PromptDebugger plugin");
+        let config = self.config.lock().await;
+        if config.enabled {
+            info!("PromptDebugger plugin started with UI endpoint: {}", config.ui_endpoint);
+            info!("Debug mode enabled: {}", config.debug_mode);
+            info!("Max stored prompts: {}", config.max_stored_prompts);
+        } else {
+            info!("PromptDebugger plugin is disabled");
+        }
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), PluginError> {
-        info!("Stopping prompt debugger plugin");
+        info!("Stopping PromptDebugger plugin");
         Ok(())
     }
 
